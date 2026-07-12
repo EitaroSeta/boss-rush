@@ -56,11 +56,12 @@
     text-align: center; z-index: 20; touch-action: none;
   }
   .btn.pressed { background: rgba(120,150,220,.5); }
-  #btnAttack { right: 18px;  bottom: 84px;  width: 76px; height: 76px; font-size: 15px; }
-  #btnRoll   { right: 104px; bottom: 40px;  width: 66px; height: 66px; font-size: 13px; }
-  #btnGuard  { left: 18px;   bottom: 84px;  width: 76px; height: 76px; font-size: 14px; }
-  #btnParry  { left: 104px;  bottom: 40px;  width: 66px; height: 66px; font-size: 13px; }
-  #btnHeal   { left: 30px;   bottom: 180px; width: 56px; height: 56px; font-size: 12px; }
+  /* 右手だけで全アクション: 親指の円弧に沿ったダイヤ配置（左手は移動専任） */
+  #btnAttack { right: 18px;  bottom: 90px;  width: 76px; height: 76px; font-size: 15px; }
+  #btnRoll   { right: 102px; bottom: 40px;  width: 66px; height: 66px; font-size: 13px; }
+  #btnGuard  { right: 102px; bottom: 150px; width: 66px; height: 66px; font-size: 13px; flex-direction: column; line-height: 1.15; }
+  #btnGuard .subLbl { font-size: 9px; font-weight: normal; color: rgba(223,230,242,.7); }
+  #btnHeal   { right: 28px;  bottom: 192px; width: 56px; height: 56px; font-size: 12px; }
   #healCnt   { position: absolute; right: -4px; top: -4px; width: 20px; height: 20px; border-radius: 50%;
                background: #b4862c; color: #fff; font-size: 12px; line-height: 20px; }
 
@@ -132,11 +133,10 @@
   </div>
 </div>
 
-<!-- 操作ボタン -->
+<!-- 操作ボタン（右手ダイヤ配置。ガードは長押し、タップでパリイ） -->
 <div id="btnAttack" class="btn">Attack</div>
 <div id="btnRoll" class="btn">Dodge</div>
-<div id="btnGuard" class="btn">Guard</div>
-<div id="btnParry" class="btn">Parry</div>
+<div id="btnGuard" class="btn">Guard<span class="subLbl">tap: Parry</span></div>
 <div id="btnHeal" class="btn">Heal<span id="healCnt">3</span></div>
 
 <!-- タイトル -->
@@ -146,7 +146,7 @@
   <div class="desc">
     Drag left half: Move (circle around the boss)<br>
     Right: Attack / Dodge (roll with i-frames)<br>
-    Left: Guard (hold) / Parry (deflect just before impact)<br>
+    Guard: hold to block, tap to parry<br>
     Heal: 3 charges (vulnerable while drinking)<br>
     <span style="color:#6f7890">PC: WASD Move / Space Dodge / J Attack / I Guard / U Parry / L Heal</span>
   </div>
@@ -491,18 +491,26 @@ function setupButton(id, action) {
 setupButton('btnAttack', 'attack');
 setupButton('btnRoll', 'roll');
 setupButton('btnHeal', 'heal');
-setupButton('btnParry', 'parry');
 
-// ガードは「押している間」有効（長押し）
+// ガード/パリイ統合ボタン:
+// 押した瞬間からガード（即応性を保つ）。0.18秒以内に離したらパリイに切り替える
 {
   const gEl = document.getElementById('btnGuard');
+  const TAP_MS = 180;
+  let downAt = 0;
   gEl.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     audioInit();
     gEl.classList.add('pressed');
     input.guardTouch = true;
+    downAt = performance.now();
   });
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev =>
+  gEl.addEventListener('pointerup', () => {
+    gEl.classList.remove('pressed');
+    input.guardTouch = false;
+    if (performance.now() - downAt < TAP_MS) actions.push('parry');
+  });
+  ['pointercancel', 'pointerleave'].forEach(ev =>
     gEl.addEventListener(ev, () => { gEl.classList.remove('pressed'); input.guardTouch = false; })
   );
 }
@@ -1685,14 +1693,26 @@ function actorTrail(A, life, cr, cg, cb) {
 }
 
 // file://直開きではfetchが使えないため、models-data.jsに埋め込んだ
-// base64データを直接パースする（MODEL_DATAが無い場合はURL読み込みにフォールバック）
+// base64データを直接パースする（MODEL_DATAが無い場合はURL読み込みにフォールバック）。
+// データはgzip圧縮されており、ブラウザのDecompressionStreamで展開する
 function loadModel(path, cb) {
   const loader = new THREE.GLTFLoader();
   if (typeof MODEL_DATA !== 'undefined' && MODEL_DATA[path]) {
     const bin = atob(MODEL_DATA[path]);
     const buf = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-    loader.parse(buf.buffer, '', cb, (e) => {});
+    if (typeof MODEL_DATA_GZ !== 'undefined' && MODEL_DATA_GZ) {
+      if (typeof DecompressionStream === 'undefined') {
+        // 古いブラウザ: モデルなし（カプセル体に自動フォールバック）
+        return;
+      }
+      new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip')))
+        .arrayBuffer()
+        .then((ab) => loader.parse(ab, '', cb, (e) => {}))
+        .catch((e) => {});
+    } else {
+      loader.parse(buf.buffer, '', cb, (e) => {});
+    }
   } else {
     loader.load(path, cb, undefined, (e) => {});
   }
