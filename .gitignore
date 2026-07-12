@@ -1,0 +1,12 @@
+# Mixamo素材の生ファイル（規約により素材単体での再配布は不可）
+mixamo/
+
+# モデル単体ファイル（Mixamo由来のものは再配布不可。ゲームはmodels-data.jsの埋め込みデータで動作する）
+models/*.glb
+models/*.gltf
+
+# 変換ツール（第三者のバイナリ。入手方法はREADME参照）
+tools/
+
+# バックアップ
+*.bak

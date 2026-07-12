@@ -1,0 +1,2395 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>HALL OF KINGS - BOSS RUSH</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #05060a; color: #cfd6e4;
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+    touch-action: none; -webkit-user-select: none; user-select: none;
+    overscroll-behavior: none;
+  }
+  #cv { position: fixed; inset: 0; display: block; touch-action: none; }
+
+  /* ===== 仮想スティック / 被弾フラッシュ（DOMオーバーレイ） ===== */
+  #stickBase, #stickKnob { position: fixed; border-radius: 50%; pointer-events: none; display: none; z-index: 15; }
+  #stickBase { width: 92px; height: 92px; border: 2px solid rgba(207,214,228,.35); margin: -46px 0 0 -46px; }
+  #stickKnob { width: 36px; height: 36px; background: rgba(207,214,228,.55); margin: -18px 0 0 -18px; }
+  #dmgFlash { position: fixed; inset: 0; pointer-events: none; z-index: 14; opacity: 0;
+              background: radial-gradient(ellipse at center, rgba(160,20,20,0) 40%, rgba(160,20,20,.55) 100%); }
+  #ltFlash  { position: fixed; inset: 0; pointer-events: none; z-index: 13; opacity: 0;
+              background: radial-gradient(ellipse at 50% 30%, rgba(210,230,255,.85), rgba(150,190,255,.25) 70%); }
+
+  /* ===== ボス選択 ===== */
+  #bossSelect { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .bossBtn { padding: 10px 18px; font-size: 14px; color: #cfd6e4; background: rgba(30,36,54,.6);
+             border: 1px solid rgba(150,160,190,.4); border-radius: 4px; cursor: pointer; }
+  .bossBtn.sel { border-color: #d9b23c; color: #e8e2d0; background: rgba(70,60,30,.45); }
+
+  /* ===== HUD ===== */
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 16; }
+  .barWrap { position: absolute; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.25); }
+  .barFill { height: 100%; transition: width .12s linear; }
+  #hpWrap    { left: 12px; top: 12px; width: 46vw; max-width: 220px; height: 12px; }
+  #hpFill    { background: linear-gradient(#d64545, #8f1f1f); }
+  #stWrap    { left: 12px; top: 28px; width: 38vw; max-width: 180px; height: 8px; }
+  #stFill    { background: linear-gradient(#4fae62, #2c6e3c); }
+  #bossBar   { position: absolute; left: 50%; transform: translateX(-50%); top: 48px; width: 84vw; max-width: 520px; text-align: center; }
+  #bossName  { font-family: Garamond, "Times New Roman", serif; font-size: 15px; letter-spacing: .12em; color: #e8e2d0; text-shadow: 0 0 6px #000; margin-bottom: 3px; }
+  #bossHpWrap { position: relative; width: 100%; height: 8px; background: rgba(0,0,0,.6); border: 1px solid rgba(232,226,208,.4); }
+  #bossHpFill { background: linear-gradient(#d9b23c, #8a6a14); }
+  #bossPoWrap { width: 100%; height: 3px; background: rgba(0,0,0,.5); margin-top: 2px; }
+  #bossPoFill { background: #d0d0e8; }
+  #timerLbl  { position: absolute; right: 12px; top: 12px; font-size: 12px; color: rgba(207,214,228,.7); font-variant-numeric: tabular-nums; }
+
+  /* ===== 操作ボタン ===== */
+  .btn {
+    position: fixed; border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,.45);
+    background: rgba(20,26,40,.45); color: #dfe6f2;
+    font-weight: bold; display: none;
+    align-items: center; justify-content: center;
+    text-align: center; z-index: 20; touch-action: none;
+  }
+  .btn.pressed { background: rgba(120,150,220,.5); }
+  #btnAttack { right: 18px;  bottom: 84px;  width: 76px; height: 76px; font-size: 15px; }
+  #btnRoll   { right: 104px; bottom: 40px;  width: 66px; height: 66px; font-size: 13px; }
+  #btnGuard  { left: 18px;   bottom: 84px;  width: 76px; height: 76px; font-size: 14px; }
+  #btnParry  { left: 104px;  bottom: 40px;  width: 66px; height: 66px; font-size: 13px; }
+  #btnHeal   { left: 30px;   bottom: 180px; width: 56px; height: 56px; font-size: 12px; }
+  #healCnt   { position: absolute; right: -4px; top: -4px; width: 20px; height: 20px; border-radius: 50%;
+               background: #b4862c; color: #fff; font-size: 12px; line-height: 20px; }
+
+  /* ===== オーバーレイ画面 ===== */
+  .screen {
+    position: fixed; inset: 0; z-index: 30;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 24px;
+  }
+  .screen.show { display: flex; }
+  .screen > * { max-width: 100%; }
+  #titleScreen { background: radial-gradient(ellipse at 50% 40%, rgba(30,38,60,.45), rgba(5,6,10,.9) 75%); }
+  #titleScreen h1 { font-family: Garamond, "Times New Roman", serif; font-size: min(40px, 8vw); letter-spacing: .18em; color: #e8e2d0; text-shadow: 0 0 18px rgba(200,170,90,.35); font-weight: normal; white-space: nowrap; }
+  #titleScreen .sub { margin-top: 8px; font-size: 13px; letter-spacing: .5em; color: #8a93a8; }
+  #titleScreen .desc { margin-top: 22px; font-size: 12px; line-height: 1.9; color: #9aa3b8; }
+  #bestLbl { margin-top: 14px; font-size: 13px; color: #d9b23c; min-height: 1.2em; }
+  .bigBtn {
+    margin-top: 26px; padding: 14px 52px; font-size: 18px; font-weight: bold;
+    color: #e8e2d0; background: rgba(40,48,70,.6);
+    border: 1.5px solid rgba(232,226,208,.5); border-radius: 4px;
+    letter-spacing: .3em; cursor: pointer;
+  }
+  .bigBtn:active { transform: scale(.96); background: rgba(90,100,140,.6); }
+
+  #deadScreen { background: rgba(0,0,0,0); transition: background 2.6s ease; pointer-events: none; }
+  #deadScreen.show.dark { background: rgba(0,0,0,.82); pointer-events: auto; }
+  #deadScreen h1 {
+    font-family: Garamond, "Times New Roman", "Yu Mincho", serif;
+    font-size: 54px; letter-spacing: .3em; color: #8e1a1a; font-weight: normal;
+    text-shadow: 0 0 28px rgba(160,20,20,.65), 0 0 60px rgba(120,10,10,.4);
+    opacity: 0; transition: opacity 3s ease 0.8s;
+  }
+  #deadScreen .overlayBtns { transition-delay: 3.2s; }
+  #deadScreen.dark h1 { opacity: 1; }
+
+  #winScreen { background: rgba(0,0,0,0); transition: background 1.2s ease; pointer-events: none; }
+  #winScreen.show.dark { background: rgba(0,0,0,.75); pointer-events: auto; }
+  #winScreen h1 {
+    font-family: Garamond, "Times New Roman", "Yu Mincho", serif;
+    font-size: min(30px, 6.4vw); letter-spacing: .22em; color: #d9b23c; font-weight: normal;
+    white-space: nowrap;
+    text-shadow: 0 0 26px rgba(217,178,60,.6), 0 0 60px rgba(180,140,40,.35);
+    opacity: 0; transition: opacity 1.6s ease;
+  }
+  #winScreen.dark h1 { opacity: 1; }
+  .resultInfo { margin-top: 16px; font-size: 14px; color: #cfd6e4; line-height: 2; opacity: 0; transition: opacity 1s ease .8s; }
+  .dark .resultInfo { opacity: 1; }
+  .overlayBtns { margin-top: 10px; opacity: 0; transition: opacity 1s ease 1.4s; }
+  .dark .overlayBtns { opacity: 1; }
+</style>
+</head>
+<body>
+
+<canvas id="cv"></canvas>
+<div id="stickBase"></div>
+<div id="stickKnob"></div>
+<div id="dmgFlash"></div>
+<div id="ltFlash"></div>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="hpWrap" class="barWrap"><div id="hpFill" class="barFill" style="width:100%"></div></div>
+  <div id="stWrap" class="barWrap"><div id="stFill" class="barFill" style="width:100%"></div></div>
+  <div id="timerLbl">0:00.0</div>
+  <div id="bossBar">
+    <div id="bossName">Gram, Knight of Bones</div>
+    <div id="bossHpWrap"><div id="bossHpFill" class="barFill" style="width:100%"></div></div>
+    <div id="bossPoWrap"><div id="bossPoFill" class="barFill" style="width:0%"></div></div>
+  </div>
+</div>
+
+<!-- 操作ボタン -->
+<div id="btnAttack" class="btn">Attack</div>
+<div id="btnRoll" class="btn">Dodge</div>
+<div id="btnGuard" class="btn">Guard</div>
+<div id="btnParry" class="btn">Parry</div>
+<div id="btnHeal" class="btn">Heal<span id="healCnt">3</span></div>
+
+<!-- タイトル -->
+<div id="titleScreen" class="screen show">
+  <h1>HALL OF KINGS</h1>
+  <div class="sub">BOSS RUSH</div>
+  <div class="desc">
+    Drag left half: Move (circle around the boss)<br>
+    Right: Attack / Dodge (roll with i-frames)<br>
+    Left: Guard (hold) / Parry (deflect just before impact)<br>
+    Heal: 3 charges (vulnerable while drinking)<br>
+    <span style="color:#6f7890">PC: WASD Move / Space Dodge / J Attack / I Guard / U Parry / L Heal</span>
+  </div>
+  <div id="bossSelect"></div>
+  <div id="bestLbl"></div>
+  <button id="btnStart" class="bigBtn">FIGHT</button>
+</div>
+
+<!-- 敗北 -->
+<div id="deadScreen" class="screen">
+  <h1>YOU DIED</h1>
+  <div class="overlayBtns">
+    <button id="btnRetry" class="bigBtn">RETRY</button>
+  </div>
+</div>
+
+<!-- 勝利 -->
+<div id="winScreen" class="screen">
+  <h1>HEIR OF FIRE DESTROYED</h1>
+  <div id="winInfo" class="resultInfo"></div>
+  <div class="overlayBtns">
+    <button id="btnTitle" class="bigBtn">TITLE</button>
+  </div>
+</div>
+
+<script src="three.min.js"></script>
+<script src="GLTFLoader.js"></script>
+<script src="models-data.js"></script>
+<script src="boss-data.js"></script>
+<script>
+'use strict';
+
+/* ============================================================
+   骸ノ騎士 - BOSS RUSH (Three.js版)
+   3D表示 / 背後視点ロックオン / スマホ対応
+   外部依存: three.min.js（同梱・MIT License）
+   旧ワイヤーフレーム版は classic.html に保存
+   ============================================================ */
+
+// ===== localStorage ヘルパー =====
+const STORAGE_PREFIX = 'bossrush_';
+const storage = {
+  get(key, fallback) {
+    try {
+      const raw = localStorage.getItem(STORAGE_PREFIX + key);
+      return raw === null ? fallback : JSON.parse(raw);
+    } catch { return fallback; }
+  },
+  set(key, value) {
+    try { localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value)); } catch {}
+  }
+};
+
+// ===== サウンド (Web Audio APIで自前合成) =====
+let AC = null, OUT = null;
+function audioInit() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      // マスターコンプレッサーで音圧を上げ、重ねた低音が割れないようにする
+      OUT = AC.createDynamicsCompressor();
+      OUT.threshold.value = -20;
+      OUT.knee.value = 18;
+      OUT.ratio.value = 7;
+      OUT.attack.value = 0.003;
+      OUT.release.value = 0.2;
+      OUT.connect(AC.destination);
+    } catch { AC = null; OUT = null; }
+  }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function tone(freq, dur, type, vol, slideTo) {
+  if (!AC) return;
+  const t0 = AC.currentTime;
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, t0);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), t0 + dur);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(OUT || AC.destination);
+  o.start(t0); o.stop(t0 + dur + 0.02);
+}
+function noiseBurst(dur, vol, filterFreq, delaySec) {
+  if (!AC) return;
+  const t0 = AC.currentTime + (delaySec || 0);
+  const len = Math.max(1, Math.floor(AC.sampleRate * dur));
+  const buf = AC.createBuffer(1, len, AC.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = AC.createBufferSource(); src.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = filterFreq;
+  const g = AC.createGain(); g.gain.value = vol;
+  src.connect(f).connect(g).connect(OUT || AC.destination);
+  src.start(t0);
+}
+// 低音の「ドスン」（重さの土台）
+function subThump(freq, dur, vol) {
+  tone(freq, dur, 'sine', vol, Math.max(20, freq * 0.4));
+}
+const sfx = {
+  hit() { // 斬撃: 低音の衝撃 + 金属質な擦過
+    subThump(60, 0.22, 0.4);
+    noiseBurst(0.09, 0.5, 3200);
+    tone(180, 0.12, 'square', 0.16, 70);
+  },
+  crit() { // 致命打: より深く長い衝撃
+    subThump(48, 0.35, 0.55);
+    noiseBurst(0.16, 0.55, 4200);
+    tone(650, 0.25, 'square', 0.13, 160);
+    noiseBurst(0.3, 0.2, 800, 0.05); // 余韻
+  },
+  playerHurt() { // 被弾: 鈍い重打
+    subThump(44, 0.4, 0.55);
+    tone(105, 0.3, 'sawtooth', 0.25, 38);
+    noiseBurst(0.14, 0.4, 650);
+  },
+  roll() {
+    noiseBurst(0.2, 0.26, 550);
+    subThump(70, 0.14, 0.15);
+  },
+  swing() { // 風切り: 下降スイープ
+    noiseBurst(0.16, 0.32, 900);
+    tone(320, 0.14, 'sawtooth', 0.1, 70);
+  },
+  heal() {
+    tone(520, 0.35, 'sine', 0.16, 780);
+    tone(780, 0.5, 'sine', 0.11, 1040);
+    subThump(90, 0.3, 0.12);
+  },
+  parry() { // 金属の弾き + 低音の重み
+    tone(1500, 0.25, 'square', 0.13, 850);
+    tone(2300, 0.32, 'sine', 0.09, 1150);
+    noiseBurst(0.07, 0.32, 6000);
+    subThump(70, 0.25, 0.35);
+  },
+  guardHit() { // 盾受け: 鈍い金属打
+    subThump(58, 0.3, 0.45);
+    tone(230, 0.16, 'square', 0.22, 85);
+    tone(1050, 0.1, 'triangle', 0.1, 650);
+    noiseBurst(0.1, 0.42, 1300);
+  },
+  roar() { // 咆哮: 多層の唸り
+    tone(55, 1.3, 'sawtooth', 0.35, 26);
+    tone(84, 1.1, 'sawtooth', 0.25, 38);
+    subThump(34, 1.4, 0.45);
+    noiseBurst(1.0, 0.3, 260);
+    noiseBurst(0.5, 0.2, 150, 0.35);
+  },
+  gong() { // 開戦の銅鑼: 重い一撃 + 金属のうなりが長く残る
+    subThump(42, 3.2, 0.55);
+    noiseBurst(0.22, 0.3, 3600);
+    tone(148, 4.0, 'triangle', 0.18, 143);
+    tone(222, 3.4, 'sine', 0.12, 216);
+    tone(297, 2.8, 'sine', 0.08, 290);
+    tone(446, 2.2, 'sine', 0.05, 437);
+    noiseBurst(2.8, 0.1, 480, 0.3);
+  },
+  slam() { // 着地衝撃: 地響き
+    subThump(36, 0.8, 0.65);
+    noiseBurst(0.4, 0.6, 280);
+    tone(70, 0.45, 'sawtooth', 0.3, 22);
+    noiseBurst(0.6, 0.2, 120, 0.15); // 揺れ戻り
+  },
+  thunder() { // 落雷: 鋭い炸裂 + 長い残響
+    noiseBurst(0.5, 0.55, 3200);
+    tone(1500, 0.12, 'square', 0.16, 85);
+    subThump(30, 1.2, 0.5);
+    noiseBurst(0.9, 0.35, 480, 0.08);
+    noiseBurst(1.2, 0.15, 200, 0.4); // 遠雷の余韻
+  },
+  stagger() { // 体幹崩し: 割れる金属音
+    tone(1250, 0.4, 'square', 0.13, 480);
+    noiseBurst(0.25, 0.4, 2200);
+    subThump(50, 0.45, 0.4);
+  },
+  death() { // 崩れ落ちる低い轟き
+    tone(52, 2.2, 'sawtooth', 0.32, 18);
+    subThump(33, 2.4, 0.42);
+    noiseBurst(0.6, 0.3, 300, 0.1);
+  },
+  youDied() { // YOU DIED表示: 金属質の鐘鳴り + 不穏な短調の余韻（オリジナル合成）
+    subThump(45, 2.8, 0.42);
+    // 金属の打撃（ゴング/鐘: わずかにうなる高次倍音が長く減衰）
+    noiseBurst(0.15, 0.22, 5200);
+    tone(523, 2.8, 'triangle', 0.1, 517);
+    tone(784, 2.4, 'sine', 0.07, 775);
+    tone(1047, 1.9, 'sine', 0.05, 1038);
+    // ドローンと短三和音（一段高いG基準）
+    tone(98, 3.8, 'sawtooth', 0.1, 90);
+    tone(103.8, 3.2, 'sawtooth', 0.07, 95);  // 半音ずれのうねり
+    tone(196, 4.2, 'sine', 0.1);             // 短三和音 (G3)
+    tone(233.1, 4.2, 'sine', 0.08);          // (B♭3)
+    tone(294, 4.2, 'sine', 0.06);            // (D4)
+    noiseBurst(2.2, 0.08, 320, 0.3);         // 遠鳴りの尾
+  },
+  win() {
+    tone(392, 0.5, 'sine', 0.18);
+    subThump(98, 1.2, 0.2);
+    setTimeout(() => tone(523, 0.6, 'sine', 0.18), 220);
+    setTimeout(() => tone(659, 1.4, 'sine', 0.18), 460);
+  }
+};
+
+// ===== 数学ユーティリティ =====
+const TAU = Math.PI * 2;
+function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function ease(t) { return t * t * (3 - 2 * t); }
+function angDiff(a, b) {
+  let d = (b - a) % TAU;
+  if (d > Math.PI) d -= TAU;
+  if (d < -Math.PI) d += TAU;
+  return d;
+}
+function rotY(p, a) {
+  const c = Math.cos(a), s = Math.sin(a);
+  return { x: p.x * c + p.z * s, y: p.y, z: -p.x * s + p.z * c };
+}
+function rotAxis(p, axis, ang) { // ロドリゲスの回転公式
+  const c = Math.cos(ang), s = Math.sin(ang);
+  const dot = axis.x * p.x + axis.y * p.y + axis.z * p.z;
+  const cx = axis.y * p.z - axis.z * p.y;
+  const cy = axis.z * p.x - axis.x * p.z;
+  const cz = axis.x * p.y - axis.y * p.x;
+  return {
+    x: p.x * c + cx * s + axis.x * dot * (1 - c),
+    y: p.y * c + cy * s + axis.y * dot * (1 - c),
+    z: p.z * c + cz * s + axis.z * dot * (1 - c)
+  };
+}
+
+// ===== Three.js セットアップ =====
+const cv = document.getElementById('cv');
+let W = 0, H = 0;
+let gfxOk = false;
+let renderer = null, scene = null, camera = null;
+
+try {
+  if (typeof THREE === 'undefined') throw new Error('three.min.js not loaded');
+  renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
+  // r147の色管理を新仕様に合わせる（sRGB出力 + 色変換を有効化。r158時代の色味を維持）
+  if (THREE.ColorManagement) THREE.ColorManagement.legacyMode = false;
+  if (THREE.sRGBEncoding !== undefined) renderer.outputEncoding = THREE.sRGBEncoding;
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x05060a);
+  scene.fog = new THREE.Fog(0x05060a, 10, 36);
+  camera = new THREE.PerspectiveCamera(55, 1, 0.1, 120);
+  gfxOk = true;
+} catch (e) { gfxOk = false; }
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  if (!gfxOk) return;
+  renderer.setPixelRatio(dpr);
+  renderer.setSize(W, H);
+  camera.aspect = W / H;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+const cam = { x: 0, y: 2.7, z: -13, lx: 0, ly: 2, lz: 0, shake: 0 };
+
+// ===== ライティング / アリーナ =====
+const ARENA_R = 14;   // プレイ可能半径
+const WALL_R = 15.5;  // 壁表示半径
+
+if (gfxOk) {
+  scene.add(new THREE.HemisphereLight(0x3c4a68, 0x0a0c12, 0.9));
+  const key = new THREE.DirectionalLight(0xcfe0ff, 1.3);
+  key.position.set(6, 14, -8);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0x6f8fd8, 0.6);
+  rim.position.set(-8, 6, 10);
+  scene.add(rim);
+  const ember = new THREE.PointLight(0xff8040, 2.2, 45, 1.8); // 闘技場全体を薄く焙る暖色
+  ember.position.set(0, 7, 0);
+  scene.add(ember);
+
+  // 地面
+  const ground = new THREE.Mesh(
+    new THREE.CircleGeometry(40, 48).rotateX(-Math.PI / 2),
+    new THREE.MeshStandardMaterial({ color: 0x0d1019, roughness: 0.95, metalness: 0 })
+  );
+  ground.position.y = 0;
+  scene.add(ground);
+
+  // 発光グリッド（円形に切り抜いた格子）
+  {
+    const verts = [];
+    const R = WALL_R, step = 2;
+    for (let g = -14; g <= 14; g += step) {
+      if (Math.abs(g) >= R) continue;
+      const half = Math.sqrt(R * R - g * g);
+      verts.push(g, 0.02, -half, g, 0.02, half);
+      verts.push(-half, 0.02, g, half, 0.02, g);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    scene.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x35486e, transparent: true, opacity: 0.55 })));
+  }
+  // 外周リング
+  {
+    const pts = [];
+    for (let i = 0; i <= 64; i++) {
+      const a = i / 64 * TAU;
+      pts.push(new THREE.Vector3(Math.cos(a) * WALL_R, 0.03, Math.sin(a) * WALL_R));
+    }
+    scene.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: 0x5a74b8, transparent: true, opacity: 0.8 })
+    ));
+  }
+  // 霧の壁
+  const wall = new THREE.Mesh(
+    new THREE.CylinderGeometry(WALL_R, WALL_R, 3.4, 48, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0x1a2440, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false })
+  );
+  wall.position.y = 1.7;
+  scene.add(wall);
+}
+
+// ===== 入力 (仮想スティック + ボタン + キーボード) =====
+const input = { stickId: null, stickOx: 0, stickOy: 0, stickX: 0, stickY: 0, guardTouch: false };
+const actions = []; // 'attack' | 'roll' | 'heal' | 'parry'
+const keys = {};
+
+function setupButton(id, action) {
+  const el = document.getElementById(id);
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    audioInit();
+    el.classList.add('pressed');
+    actions.push(action);
+  });
+  el.addEventListener('pointerup', () => el.classList.remove('pressed'));
+  el.addEventListener('pointercancel', () => el.classList.remove('pressed'));
+  el.addEventListener('pointerleave', () => el.classList.remove('pressed'));
+}
+setupButton('btnAttack', 'attack');
+setupButton('btnRoll', 'roll');
+setupButton('btnHeal', 'heal');
+setupButton('btnParry', 'parry');
+
+// ガードは「押している間」有効（長押し）
+{
+  const gEl = document.getElementById('btnGuard');
+  gEl.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    audioInit();
+    gEl.classList.add('pressed');
+    input.guardTouch = true;
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev =>
+    gEl.addEventListener(ev, () => { gEl.classList.remove('pressed'); input.guardTouch = false; })
+  );
+}
+
+cv.addEventListener('pointerdown', (e) => {
+  audioInit();
+  if (e.clientX < W * 0.55 && input.stickId === null) {
+    input.stickId = e.pointerId;
+    input.stickOx = e.clientX; input.stickOy = e.clientY;
+    input.stickX = 0; input.stickY = 0;
+    cv.setPointerCapture(e.pointerId);
+  }
+});
+cv.addEventListener('pointermove', (e) => {
+  if (e.pointerId === input.stickId) {
+    const dx = e.clientX - input.stickOx, dy = e.clientY - input.stickOy;
+    const len = Math.hypot(dx, dy), max = 52;
+    const k = len > max ? max / len : 1;
+    input.stickX = dx * k / max;
+    input.stickY = dy * k / max;
+  }
+});
+function stickEnd(e) {
+  if (e.pointerId === input.stickId) {
+    input.stickId = null; input.stickX = 0; input.stickY = 0;
+  }
+}
+cv.addEventListener('pointerup', stickEnd);
+cv.addEventListener('pointercancel', stickEnd);
+
+window.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  keys[e.code] = true;
+  audioInit();
+  if (e.code === 'Space' || e.code === 'KeyK') { actions.push('roll'); e.preventDefault(); }
+  if (e.code === 'KeyJ' || e.code === 'Enter') actions.push('attack');
+  if (e.code === 'KeyL' || e.code === 'KeyH') actions.push('heal');
+  if (e.code === 'KeyU' || e.code === 'KeyO') actions.push('parry');
+});
+window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+function readStick() {
+  let x = input.stickX, y = input.stickY;
+  if (keys['KeyW'] || keys['ArrowUp']) y -= 1;
+  if (keys['KeyS'] || keys['ArrowDown']) y += 1;
+  if (keys['KeyA'] || keys['ArrowLeft']) x -= 1;
+  if (keys['KeyD'] || keys['ArrowRight']) x += 1;
+  const len = Math.hypot(x, y);
+  if (len > 1) { x /= len; y /= len; }
+  return { x, y, active: len > 0.12 };
+}
+
+// ===== ポーズ定義 =====
+function P(o) {
+  return Object.assign({
+    lean: 0, twist: 0, crouch: 0,
+    rp: 0.25, ry: 0.3, re: 0.5,
+    lp: 0.15, ly: 0.4, le: 0.6,
+    sp: -0.55, sy: 0.4
+  }, o);
+}
+function lerpPose(a, b, t) {
+  const o = {};
+  for (const k in a) o[k] = a[k] + (b[k] - a[k]) * t;
+  return o;
+}
+function poseAt(frames, t) {
+  if (t <= frames[0][0]) return frames[0][1];
+  for (let i = 0; i < frames.length - 1; i++) {
+    if (t < frames[i + 1][0]) {
+      const u = (t - frames[i][0]) / (frames[i + 1][0] - frames[i][0]);
+      return lerpPose(frames[i][1], frames[i + 1][1], ease(u));
+    }
+  }
+  return frames[frames.length - 1][1];
+}
+
+// ===== 骨格（関節位置）ビルダー =====
+// 名前付きの関節ワールド座標を返す。メッシュはこの点の間に張り付ける
+function buildHumanoid(px, pz, facing, s, pose, walkPhase, walkAmt, swordLen, py) {
+  const loc = {};
+  const bob = walkAmt * Math.abs(Math.sin(walkPhase)) * 0.05 * s;
+  const pelvisY = s * (0.98 - 0.34 * pose.crouch) + bob;
+  const lean = pose.lean;
+  loc.pelvis = { x: 0, y: pelvisY, z: 0 };
+  loc.chest = { x: 0, y: pelvisY + 0.52 * s * Math.cos(lean), z: 0.52 * s * Math.sin(lean) };
+  loc.neck = { x: 0, y: loc.chest.y + 0.1 * s, z: loc.chest.z + 0.05 * s * Math.sin(lean) };
+  loc.head = { x: 0, y: loc.neck.y + 0.14 * s, z: loc.neck.z + 0.06 * s * Math.sin(lean) };
+
+  // 肩（捻り反映）
+  const shw = 0.24 * s;
+  {
+    const r1 = rotY({ x: shw, y: 0, z: 0 }, pose.twist);
+    const r2 = rotY({ x: -shw, y: 0, z: 0 }, pose.twist);
+    loc.shR = { x: loc.chest.x + r1.x, y: loc.chest.y, z: loc.chest.z + r1.z };
+    loc.shL = { x: loc.chest.x + r2.x, y: loc.chest.y, z: loc.chest.z + r2.z };
+  }
+
+  // 腕 (side: +1右 -1左)
+  function arm(sh, side, suf, ap, ay, ae) {
+    let d = { x: 0, y: -Math.cos(ap), z: Math.sin(ap) };
+    const c = Math.cos(ay * side), ss = Math.sin(ay * side);
+    d = { x: -d.y * ss + d.x * c, y: d.y * c + d.x * ss * (side > 0 ? -1 : 1), z: d.z };
+    d = rotY(d, pose.twist);
+    const ul = 0.32 * s;
+    const elbow = { x: sh.x + d.x * ul, y: sh.y + d.y * ul, z: sh.z + d.z * ul };
+    let d2 = { x: d.x, y: d.y * Math.cos(ae) - d.z * Math.sin(ae), z: d.y * Math.sin(ae) + d.z * Math.cos(ae) };
+    const fl = 0.3 * s;
+    const hand = { x: elbow.x + d2.x * fl, y: elbow.y + d2.y * fl, z: elbow.z + d2.z * fl };
+    loc['elbow' + suf] = elbow;
+    loc['hand' + suf] = hand;
+  }
+  arm(loc.shR, 1, 'R', pose.rp, pose.ry, pose.re);
+  arm(loc.shL, -1, 'L', pose.lp, pose.ly, pose.le);
+
+  // 剣（右手）
+  {
+    const sp = pose.sp, sy = pose.sy;
+    let sd = { x: Math.sin(sy) * Math.cos(sp), y: Math.sin(sp), z: Math.cos(sy) * Math.cos(sp) };
+    sd = rotY(sd, pose.twist);
+    const hR = loc.handR;
+    loc.swordTip = { x: hR.x + sd.x * swordLen, y: hR.y + sd.y * swordLen, z: hR.z + sd.z * swordLen };
+    const gd = rotY(sd, Math.PI / 2);
+    const gp = { x: hR.x + sd.x * 0.1 * s, y: hR.y + sd.y * 0.1 * s, z: hR.z + sd.z * 0.1 * s };
+    loc.guardA = { x: gp.x - gd.x * 0.11 * s, y: gp.y - gd.y * 0.11 * s, z: gp.z - gd.z * 0.11 * s };
+    loc.guardB = { x: gp.x + gd.x * 0.11 * s, y: gp.y + gd.y * 0.11 * s, z: gp.z + gd.z * 0.11 * s };
+  }
+
+  // 脚
+  function leg(side, suf, phaseOff) {
+    const hip = { x: side * 0.13 * s, y: pelvisY, z: 0 };
+    const swing = walkAmt * Math.sin(walkPhase + phaseOff) * 0.55 + pose.crouch * 0.9;
+    const d = { x: 0, y: -Math.cos(swing), z: Math.sin(swing) };
+    const tl = 0.47 * s;
+    const knee = { x: hip.x + d.x * tl, y: hip.y + d.y * tl, z: hip.z + d.z * tl };
+    const bend = walkAmt * Math.max(0, -Math.sin(walkPhase + phaseOff)) * 1.1 + 0.12 + pose.crouch * 1.5;
+    const d2 = { x: d.x, y: d.y * Math.cos(bend) - d.z * Math.sin(bend), z: d.y * Math.sin(bend) + d.z * Math.cos(bend) };
+    const sl = 0.46 * s;
+    const foot = { x: knee.x + d2.x * sl, y: Math.max(0.05 * s, knee.y + d2.y * sl), z: knee.z + d2.z * sl };
+    loc['hip' + suf] = hip;
+    loc['knee' + suf] = knee;
+    loc['foot' + suf] = foot;
+    loc['toe' + suf] = { x: foot.x, y: foot.y - 0.02 * s, z: foot.z + 0.16 * s };
+  }
+  leg(1, 'R', 0);
+  leg(-1, 'L', Math.PI);
+
+  // ワールド座標へ変換
+  const pts = {};
+  for (const k in loc) {
+    const r = rotY(loc[k], facing);
+    pts[k] = { x: r.x + px, y: r.y + (py || 0), z: r.z + pz };
+  }
+  return { pts };
+}
+
+// ===== キャラクタの「肉体」リグ（メッシュを関節間に張る） =====
+const _V_UP = gfxOk ? new THREE.Vector3(0, 1, 0) : null;
+const _vDir = gfxOk ? new THREE.Vector3() : null;
+
+// ゲーム内座標(x)を反転してThree.js空間に置く。
+// （旧Canvas版と同じ「画面右=+x」の見え方に合わせる。これで右手の剣が正しく右に見える）
+function placeBetween(mesh, a, b, pad) {
+  mesh.position.set(-(a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+  _vDir.set(-(b.x - a.x), b.y - a.y, b.z - a.z);
+  const len = _vDir.length() || 0.001;
+  _vDir.divideScalar(len);
+  mesh.quaternion.setFromUnitVectors(_V_UP, _vDir);
+  mesh.scale.set(1, len + (pad || 0), 1);
+}
+function lerp3(a, b, t) {
+  return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), z: lerp(a.z, b.z, t) };
+}
+
+function createHumanRig(cfg) {
+  const s = cfg.s;
+  const g = new THREE.Group();
+  scene.add(g);
+  const matBody = new THREE.MeshStandardMaterial({ color: cfg.body, roughness: 0.7, metalness: 0.2 });
+  const matArmor = new THREE.MeshStandardMaterial({ color: cfg.armor, roughness: 0.42, metalness: 0.6, side: THREE.DoubleSide });
+  const matBlade = new THREE.MeshStandardMaterial({ color: 0xc8d2dd, roughness: 0.25, metalness: 0.9 });
+  const matDark = new THREE.MeshStandardMaterial({ color: 0x0d1016, roughness: 0.6, metalness: 0.3 });
+  const allMats = [matBody, matArmor, matBlade, matDark];
+
+  const bones = []; // 関節間に張るパーツ
+  function addBone(a, b, r1, r2, mat, pad) {
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r2, r1, 1, 10), mat);
+    g.add(mesh);
+    bones.push({ mesh, a, b, pad: pad || 0 });
+    return mesh;
+  }
+  function addBoxBone(a, b, w, d, mat, pad) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 1, d), mat);
+    g.add(mesh);
+    bones.push({ mesh, a, b, pad: pad || 0 });
+    return mesh;
+  }
+  const balls = []; // 関節の球
+  function addBall(name, r, mat) {
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 9), mat);
+    g.add(mesh);
+    balls.push({ mesh, name });
+    return mesh;
+  }
+
+  // 胴体・首
+  addBone('pelvis', 'chest', 0.15 * s, 0.17 * s, matBody, 0.12 * s); // 腹〜背
+  addBone('chest', 'head', 0.055 * s, 0.05 * s, matBody);            // 首
+  const chestPlate = new THREE.Mesh(new THREE.BoxGeometry(0.5 * s, 1, 0.3 * s), matArmor); // 胸甲
+  g.add(chestPlate);
+  const abdomen = new THREE.Mesh(new THREE.BoxGeometry(0.34 * s, 1, 0.23 * s), matBody);   // 腹部
+  g.add(abdomen);
+  addBoxBone('hipL', 'hipR', 0.25 * s, 0.22 * s, matArmor, 0.09 * s); // 腰当て
+  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.24 * s, 0.34 * s, 1, 12, 1, true), matArmor); // 草摺（腰の裾鎧）
+  g.add(skirt);
+
+  // 腕（上腕は肉厚、前腕は籠手=鎧色）
+  addBone('shR', 'elbowR', 0.082 * s, 0.062 * s, matBody);
+  addBone('elbowR', 'handR', 0.066 * s, 0.05 * s, matArmor);
+  addBone('shL', 'elbowL', 0.082 * s, 0.062 * s, matBody);
+  addBone('elbowL', 'handL', 0.066 * s, 0.05 * s, matArmor);
+  // 脚（太ももは太く、すねは脛当て=鎧色）
+  addBone('hipR', 'kneeR', 0.105 * s, 0.075 * s, matBody);
+  addBone('kneeR', 'footR', 0.078 * s, 0.055 * s, matArmor);
+  addBone('hipL', 'kneeL', 0.105 * s, 0.075 * s, matBody);
+  addBone('kneeL', 'footL', 0.078 * s, 0.055 * s, matArmor);
+  addBoxBone('footR', 'toeR', 0.1 * s, 0.07 * s, matArmor);
+  addBoxBone('footL', 'toeL', 0.1 * s, 0.07 * s, matArmor);
+
+  // 関節球（肘当て・膝当て・籠手の拳）
+  addBall('elbowR', 0.066 * s, matArmor); addBall('elbowL', 0.066 * s, matArmor);
+  addBall('kneeR', 0.082 * s, matArmor);  addBall('kneeL', 0.082 * s, matArmor);
+  addBall('hipR', 0.095 * s, matBody);    addBall('hipL', 0.095 * s, matBody);
+  addBall('handR', 0.06 * s, matArmor);   addBall('handL', 0.06 * s, matArmor);
+  addBall('shR', cfg.style && cfg.style.pauldrons ? 0.16 * s : 0.085 * s, cfg.style && cfg.style.pauldrons ? matArmor : matBody);
+  addBall('shL', cfg.style && cfg.style.pauldrons ? 0.16 * s : 0.085 * s, cfg.style && cfg.style.pauldrons ? matArmor : matBody);
+
+  // 頭部（兜・角・目は頭グループにまとめて向きを追従）
+  const headG = new THREE.Group();
+  g.add(headG);
+  headG.add(new THREE.Mesh(new THREE.SphereGeometry(0.115 * s, 16, 12), cfg.isBoss ? matArmor : matBody));
+  if (cfg.helm) {
+    // 騎士兜: ドーム + 黒いバイザースリット + 頬当て
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.135 * s, 16, 12), matArmor);
+    dome.scale.y = 1.05;
+    dome.position.y = 0.01 * s;
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.17 * s, 0.035 * s, 0.05 * s), matDark);
+    visor.position.set(0, 0.005 * s, 0.115 * s);
+    const crest = new THREE.Mesh(new THREE.BoxGeometry(0.02 * s, 0.09 * s, 0.2 * s), matArmor);
+    crest.position.y = 0.14 * s;
+    headG.add(dome, visor, crest);
+  }
+  let eyeMat = null, eyeL = null, eyeR = null;
+  if (cfg.style) {
+    if (cfg.style.horns) {
+      const hornGeo = new THREE.ConeGeometry(0.042 * s, 0.3 * s, 8);
+      const hr = new THREE.Mesh(hornGeo, matArmor);
+      hr.position.set(0.095 * s, 0.16 * s, -0.02 * s); hr.rotation.z = -0.45;
+      const hl = new THREE.Mesh(hornGeo, matArmor);
+      hl.position.set(-0.095 * s, 0.16 * s, -0.02 * s); hl.rotation.z = 0.45;
+      headG.add(hr, hl);
+    }
+    if (cfg.style.crown) {
+      // 王冠: 輪 + 前立ての小さな尖り
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.1 * s, 0.014 * s, 8, 20).rotateX(Math.PI / 2), matBlade);
+      ring.position.y = 0.09 * s;
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.02 * s, 0.09 * s, 6), matBlade);
+      spike.position.set(0, 0.15 * s, 0.08 * s);
+      headG.add(ring, spike);
+    }
+    if (cfg.style.eye) {
+      eyeMat = new THREE.MeshBasicMaterial({ color: cfg.style.eye });
+      allMats.push(eyeMat);
+      const eyeGeo = new THREE.SphereGeometry(0.028 * s, 8, 6);
+      eyeR = new THREE.Mesh(eyeGeo, eyeMat); eyeR.position.set(0.048 * s, 0.01 * s, 0.102 * s);
+      eyeL = new THREE.Mesh(eyeGeo, eyeMat); eyeL.position.set(-0.048 * s, 0.01 * s, 0.102 * s);
+      headG.add(eyeR, eyeL);
+    }
+  }
+
+  // 武器（右手）: 通常は剣、cfg.spear なら長槍（細い柄+穂先）
+  let spearHead = null;
+  if (cfg.swordLen > 0) {
+    if (cfg.spear) {
+      addBoxBone('handR', 'swordTip', 0.08, 0.08, matArmor); // 柄
+      spearHead = new THREE.Mesh(new THREE.ConeGeometry(0.13, 1, 8), matBlade); // 穂先
+      g.add(spearHead);
+    } else {
+      addBoxBone('handR', 'swordTip', Math.max(0.045, cfg.swordLen * 0.05), Math.max(0.014, cfg.swordLen * 0.013), matBlade);
+    }
+    addBoxBone('guardA', 'guardB', 0.05 * s, 0.05 * s, matArmor);
+  }
+
+  // 盾（左腕に装着）
+  let shieldG = null;
+  if (cfg.shield) {
+    shieldG = new THREE.Group();
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.26 * s, 0.22 * s, 0.05 * s, 20), matArmor);
+    const hub = new THREE.Mesh(new THREE.SphereGeometry(0.07 * s, 10, 8), matBlade);
+    hub.position.y = 0.035 * s;
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.24 * s, 0.02 * s, 8, 24).rotateX(Math.PI / 2), matBlade);
+    rim.position.y = 0.025 * s;
+    shieldG.add(disc, hub, rim);
+    g.add(shieldG);
+  }
+
+  function update(pts, facing) {
+    for (const b of bones) placeBetween(b.mesh, pts[b.a], pts[b.b], b.pad);
+    for (const b of balls) b.mesh.position.set(-pts[b.name].x, pts[b.name].y, pts[b.name].z);
+    placeBetween(chestPlate, lerp3(pts.pelvis, pts.chest, 0.42), pts.neck, 0.04 * s);
+    placeBetween(abdomen, lerp3(pts.pelvis, pts.chest, 0.02), lerp3(pts.pelvis, pts.chest, 0.55));
+    // 草摺: 骨盤から膝方向へ垂らす
+    const kneeMid = lerp3(pts.kneeR, pts.kneeL, 0.5);
+    placeBetween(skirt, lerp3(pts.pelvis, kneeMid, 0.02), lerp3(pts.pelvis, kneeMid, 0.42));
+    headG.position.set(-pts.head.x, pts.head.y, pts.head.z);
+    headG.rotation.set(0, -facing, 0);
+    if (spearHead) {
+      // 柄の先端15%を穂先にする
+      placeBetween(spearHead, lerp3(pts.handR, pts.swordTip, 0.85), pts.swordTip);
+    }
+    if (shieldG) {
+      // 左前腕の外側に、体の正面を向くように配置
+      const ap = lerp3(pts.elbowL, pts.handL, 0.65);
+      const fdx = Math.sin(facing), fdz = Math.cos(facing);
+      shieldG.position.set(-(ap.x + fdx * 0.08 * s), ap.y, ap.z + fdz * 0.08 * s);
+      _vDir.set(-fdx, 0, fdz);
+      shieldG.quaternion.setFromUnitVectors(_V_UP, _vDir);
+    }
+  }
+  function setOpacity(o) {
+    for (const m of allMats) { m.transparent = o < 1; m.opacity = o; m.needsUpdate = false; }
+  }
+  return { group: g, update, setOpacity, matBody, matArmor, matBlade, eyeMat, eyeL, eyeR, headG };
+}
+
+// ===== ゲーム定数 =====
+const PLAYER_HP_MAX = 100;
+const STAMINA_MAX = 100;
+let BOSS_HP_MAX = 1;   // boss-data.js 読み込み後に設定される
+let POSTURE_MAX = 100;
+
+// ===== ゲーム状態 =====
+const game = {
+  scene: 'title', // title | battle | dead | win
+  time: 0,
+  freeze: 0,
+  slow: 1
+};
+
+const player = {
+  x: 0, z: -8, hp: PLAYER_HP_MAX, st: STAMINA_MAX,
+  state: 'idle',
+  stateT: 0, stRegenDelay: 0,
+  rollDx: 0, rollDz: 1, iframe: false,
+  estus: 3, walkPhase: 0, walkAmt: 0, facing: 0,
+  deadT: 0, healDone: false, attackDone: false, guarding: false,
+  vx: 0, vz: 0 // 移動速度（落雷の偏差撃ちに使う）
+};
+
+const boss = {
+  x: 0, z: 4, y: 0, facing: Math.PI,
+  leapFrom: null, leapTo: null, landed: false, spinBase: null,
+  hp: BOSS_HP_MAX, posture: 0, phase: 1,
+  state: 'intro',
+  stateT: 0, atk: null, atkT: 0, cooldown: 1.2,
+  hitFlags: {}, queue: [],
+  strafeDir: 1, strafeT: 0,
+  walkPhase: 0, walkAmt: 0, deadT: 0
+};
+
+let particles = []; // {x,y,z,vx,vy,vz,life,maxLife,cr,cg,cb}
+let trails = [];    // 剣の軌跡 {ax..bz,life,cr,cg,cb}
+let debris3 = [];   // ボス死亡時の骨片（メッシュ）
+let pendingBolts = []; // 落雷 {x,z,r,dmg,timer,delay0,fired}
+game.ltFlash = 0;      // 落雷時の画面フラッシュ残り時間
+
+function spawnSparks(pos, n, cr, cg, cb) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * TAU, sp = 1.5 + Math.random() * 4;
+    particles.push({
+      x: pos.x, y: pos.y, z: pos.z,
+      vx: Math.cos(a) * sp, vy: 1 + Math.random() * 4, vz: Math.sin(a) * sp,
+      life: 0.5 + Math.random() * 0.3, maxLife: 0.8, cr, cg, cb
+    });
+  }
+}
+function pushTrail(a, b, life, cr, cg, cb) {
+  trails.push({ ax: a.x, ay: a.y, az: a.z, bx: b.x, by: b.y, bz: b.z, life, maxLife: life, cr, cg, cb });
+}
+
+// ===== ボス定義の読み込み（boss-data.js） =====
+let bossDef = null;
+
+function normalizeBossDef(def) {
+  const nd = JSON.parse(JSON.stringify(def));
+  for (const k in nd.attacks) {
+    nd.attacks[k].frames = nd.attacks[k].frames.map(f => [f[0], P(f[1])]);
+  }
+  nd.style = nd.style || {};
+  return nd;
+}
+
+function loadBossDef(def) {
+  bossDef = normalizeBossDef(def);
+  BOSS_HP_MAX = bossDef.hp;
+  POSTURE_MAX = bossDef.postureMax;
+  document.getElementById('bossName').textContent = bossDef.name;
+}
+
+function bossStartAttack(name) {
+  boss.state = 'attack';
+  boss.atk = bossDef.attacks[name];
+  boss.atkName = name;
+  boss.atkT = 0;
+  boss.hitFlags = {};
+  boss.swungSfx = false;
+  boss.leapFrom = null; boss.leapTo = null; boss.landed = false;
+  boss.spinBase = null; boss.y = 0;
+  boss.atkStamp = (boss.atkStamp || 0) + 1; // モデルアニメの再スタート検出用
+}
+
+function bossPickAttack() {
+  const d = Math.hypot(player.x - boss.x, player.z - boss.z);
+  const rule = bossDef.ai.find(r => d >= r.minDist) || bossDef.ai[bossDef.ai.length - 1];
+  let total = 0;
+  for (const k in rule.w) total += rule.w[k];
+  let r = Math.random() * total;
+  for (const k in rule.w) {
+    r -= rule.w[k];
+    if (r <= 0) return k;
+  }
+  return Object.keys(rule.w)[0];
+}
+
+// 攻撃形状の中にプレイヤーがいるか（ボスのローカル座標で判定）
+function shapeHitsPlayer(shape) {
+  const dx = player.x - boss.x, dz = player.z - boss.z;
+  const lo = rotY({ x: dx, y: 0, z: dz }, -boss.facing);
+  if (shape.type === 'rect') {
+    return Math.abs(lo.x) < shape.w / 2 && lo.z > -0.3 && lo.z < shape.len;
+  } else {
+    const r = Math.hypot(lo.x, lo.z);
+    if (r < shape.inner || r > shape.r) return false;
+    const ang = Math.atan2(lo.x, lo.z);
+    return Math.abs(ang) < shape.half;
+  }
+}
+
+// ===== ダメージ処理 =====
+function killPlayer() {
+  player.hp = 0;
+  player.state = 'dead'; player.stateT = 0;
+  game.slow = 0.35;
+  sfx.death();
+  setTimeout(() => showDead(), 4000); // 倒れる姿をしばらく見せてから暗転
+}
+
+function knockbackPlayer(dist) {
+  const dx = player.x - boss.x, dz = player.z - boss.z;
+  const d = Math.hypot(dx, dz) || 1;
+  player.x += dx / d * dist;
+  player.z += dz / d * dist;
+  clampToArena(player);
+}
+
+function damagePlayer(dmg, noParry) {
+  if (player.iframe || player.state === 'dead' || game.scene !== 'battle') return;
+
+  // パリイ成功: ダメージ無効 + ボスの体幹を大きく削る（落雷などはパリイ不可）
+  if (!noParry && player.state === 'parry' && player.stateT >= 0.04 && player.stateT <= 0.30) {
+    sfx.parry();
+    game.freeze = 0.12;
+    cam.shake = Math.max(cam.shake, 0.3);
+    spawnSparks({ x: player.x, y: 1.3, z: player.z }, 14, 1, 0.91, 0.63);
+    boss.posture = Math.min(POSTURE_MAX, boss.posture + 45);
+    if (boss.posture >= POSTURE_MAX && boss.state !== 'stagger') {
+      boss.state = 'stagger'; boss.stateT = 0; boss.atk = null; boss.y = 0;
+      sfx.stagger();
+    }
+    return;
+  }
+
+  // ガード
+  let crushed = false;
+  if (player.guarding) {
+    const stCost = dmg * 0.9;
+    if (player.st >= stCost) {
+      player.st -= stCost;
+      player.stRegenDelay = 0.6;
+      player.hp -= Math.max(1, Math.round(dmg * 0.15));
+      sfx.guardHit();
+      cam.shake = Math.max(cam.shake, 0.2);
+      spawnSparks({ x: player.x, y: 1.2, z: player.z }, 5, 0.81, 0.84, 0.89);
+      knockbackPlayer(0.7);
+      if (player.hp <= 0) killPlayer();
+      return;
+    }
+    crushed = true;
+    player.st = 0;
+    dmg = Math.round(dmg * 0.6);
+    sfx.guardHit();
+  }
+
+  player.hp -= dmg;
+  cam.shake = 0.35;
+  game.freeze = Math.max(game.freeze, 0.05); // 被弾の衝撃を一瞬止めて重さを出す
+  sfx.playerHurt();
+  spawnSparks({ x: player.x, y: 1.2, z: player.z }, 8, 0.88, 0.31, 0.31);
+  knockbackPlayer(1.3);
+  if (player.hp <= 0) {
+    killPlayer();
+  } else {
+    player.state = 'hurt';
+    player.stateT = crushed ? -0.5 : 0;
+  }
+}
+
+function damageBoss(dmg, isCrit) {
+  if (boss.state === 'dead') return;
+  const mult = boss.state === 'stagger' ? 1.8 : 1;
+  boss.hp -= dmg * mult;
+  boss.posture = Math.min(POSTURE_MAX, boss.posture + (boss.state === 'stagger' ? 0 : 9));
+  game.freeze = 0.055;
+  cam.shake = Math.max(cam.shake, 0.15);
+  if (isCrit || boss.state === 'stagger') sfx.crit(); else sfx.hit();
+  spawnSparks({ x: boss.x, y: 2.2, z: boss.z }, 6, 1, 0.91, 0.63);
+
+  if (boss.hp <= BOSS_HP_MAX * bossDef.phase2.hpRatio && boss.phase === 1 && boss.hp > 0) {
+    boss.phase = 2;
+    sfx.roar();
+    cam.shake = 0.5;
+  }
+  if (boss.posture >= POSTURE_MAX && boss.state !== 'stagger') {
+    boss.state = 'stagger'; boss.stateT = 0; boss.atk = null; boss.y = 0;
+    sfx.stagger();
+  }
+  if (boss.hp <= 0) {
+    boss.hp = 0;
+    bossDie();
+  }
+}
+
+function bossDie() {
+  boss.state = 'dead'; boss.deadT = 0;
+  sfx.death();
+  cam.shake = 0.6;
+  // 体のパーツをバラして崩れ落ちさせる（モデル使用時はDeathアニメ再生に任せる）
+  debris3 = [];
+  if (bossRig && !(USE_MODELS && bossActors[bossDef.id])) {
+    for (const m of bossRig.group.children) {
+      const ax = Math.random() * TAU;
+      debris3.push({
+        m,
+        vx: (Math.random() - 0.5) * 3, vy: 1 + Math.random() * 3.5, vz: (Math.random() - 0.5) * 3,
+        wx: (Math.random() - 0.5) * 7, wz: (Math.random() - 0.5) * 7
+      });
+    }
+  }
+  const t = game.time;
+  setTimeout(() => showWin(t), 2200);
+}
+
+function clampToArena(o) {
+  const d = Math.hypot(o.x, o.z);
+  if (d > ARENA_R) { o.x *= ARENA_R / d; o.z *= ARENA_R / d; }
+}
+
+// ===== プレイヤー更新 =====
+function updatePlayer(dt) {
+  const st = readStick();
+  const px0 = player.x, pz0 = player.z;
+  player.stateT += dt;
+
+  const bdx = boss.x - player.x, bdz = boss.z - player.z;
+  const bd = Math.hypot(bdx, bdz) || 1;
+  const fwd = { x: bdx / bd, z: bdz / bd };
+  const right = { x: fwd.z, z: -fwd.x };
+  if (player.state !== 'roll') player.facing = Math.atan2(fwd.x, fwd.z);
+
+  // ガード状態（押している間、待機/移動中のみ有効）
+  player.guarding = game.scene === 'battle' && player.state === 'idle' &&
+    (input.guardTouch || keys['KeyI'] || keys['ShiftLeft'] || keys['ShiftRight']) &&
+    player.st > 0;
+
+  // スタミナ回復（ガード中は回復が遅い）
+  player.stRegenDelay -= dt;
+  if (player.stRegenDelay <= 0 && player.state !== 'attack' && player.state !== 'roll') {
+    player.st = Math.min(STAMINA_MAX, player.st + (player.guarding ? 9 : 34) * dt);
+  }
+
+  while (actions.length) {
+    const a = actions.shift();
+    if (game.scene !== 'battle' || player.state === 'dead') continue;
+    const canAct = player.state === 'idle' || player.state === 'hurt' && player.stateT > 0.3;
+    if (a === 'roll' && canAct && player.st > 0) {
+      player.state = 'roll'; player.stateT = 0;
+      player.st = Math.max(0, player.st - 26);
+      player.stRegenDelay = 0.5;
+      const s2 = readStick();
+      if (s2.active) {
+        player.rollDx = right.x * s2.x - fwd.x * s2.y;
+        player.rollDz = right.z * s2.x - fwd.z * s2.y;
+      } else {
+        player.rollDx = -fwd.x; player.rollDz = -fwd.z;
+      }
+      const rl = Math.hypot(player.rollDx, player.rollDz) || 1;
+      player.rollDx /= rl; player.rollDz /= rl;
+      sfx.roll();
+    } else if (a === 'attack' && canAct && player.st > 0) {
+      player.state = 'attack'; player.stateT = 0; player.attackDone = false;
+      player.st = Math.max(0, player.st - 17);
+      player.stRegenDelay = 0.55;
+      sfx.swing();
+      player.x += fwd.x * 0.55; player.z += fwd.z * 0.55;
+    } else if (a === 'parry' && canAct && player.st > 0) {
+      player.state = 'parry'; player.stateT = 0;
+      player.guarding = false;
+      player.st = Math.max(0, player.st - 10);
+      player.stRegenDelay = 0.55;
+      sfx.swing();
+    } else if (a === 'heal' && canAct && player.estus > 0) {
+      player.state = 'heal'; player.stateT = 0; player.healDone = false;
+      player.guarding = false;
+      player.estus--;
+      updateHealBtn();
+    }
+  }
+
+  let speed = 0, mvx = 0, mvz = 0;
+  if (player.state === 'idle' || player.state === 'heal') {
+    if (st.active) {
+      speed = player.state === 'heal' ? 1.7 : (player.guarding ? 1.9 : 4.3);
+      mvx = right.x * st.x - fwd.x * st.y;
+      mvz = right.z * st.x - fwd.z * st.y;
+    }
+  }
+  player.iframe = false;
+
+  if (player.state === 'roll') {
+    const RD = 0.46;
+    speed = 7.6;
+    mvx = player.rollDx; mvz = player.rollDz;
+    player.iframe = player.stateT > 0.03 && player.stateT < 0.34;
+    if (player.stateT >= RD) { player.state = 'idle'; player.stateT = 0; }
+  } else if (player.state === 'attack') {
+    // 振りの重さに合わせ、命中0.24秒・全体0.58秒（モーションと同期）
+    if (!player.attackDone && player.stateT >= 0.24) {
+      player.attackDone = true;
+      const distC = Math.hypot(boss.x - player.x, boss.z - player.z);
+      if (distC < 3.1 && boss.state !== 'dead' && boss.y < 1.2) {
+        damageBoss(26, false);
+      }
+    }
+    if (player.stateT >= 0.58) { player.state = 'idle'; player.stateT = 0; }
+  } else if (player.state === 'heal') {
+    if (!player.healDone && player.stateT >= 0.62) {
+      player.healDone = true;
+      player.hp = Math.min(PLAYER_HP_MAX, player.hp + 55);
+      sfx.heal();
+      spawnSparks({ x: player.x, y: 1.3, z: player.z }, 10, 1, 0.84, 0.42);
+    }
+    if (player.stateT >= 1.0) { player.state = 'idle'; player.stateT = 0; }
+  } else if (player.state === 'parry') {
+    if (player.stateT >= 0.55) { player.state = 'idle'; player.stateT = 0; }
+  } else if (player.state === 'hurt') {
+    if (player.stateT >= 0.38) { player.state = 'idle'; player.stateT = 0; }
+  } else if (player.state === 'dead') {
+    player.deadT += dt;
+  }
+
+  if (speed > 0) {
+    player.x += mvx * speed * dt;
+    player.z += mvz * speed * dt;
+    clampToArena(player);
+    const ddx = player.x - boss.x, ddz = player.z - boss.z;
+    const dd = Math.hypot(ddx, ddz);
+    if (dd < 1.5 && dd > 0.01 && boss.state !== 'dead') {
+      player.x = boss.x + ddx / dd * 1.5;
+      player.z = boss.z + ddz / dd * 1.5;
+    }
+    player.walkAmt = Math.min(1, player.walkAmt + dt * 8);
+    player.walkPhase += dt * speed * 2.6;
+  } else {
+    player.walkAmt = Math.max(0, player.walkAmt - dt * 8);
+  }
+
+  // 実効速度を記録（落雷の偏差撃ちに使う）
+  if (dt > 0.0001) {
+    player.vx = (player.x - px0) / dt;
+    player.vz = (player.z - pz0) / dt;
+  }
+}
+
+// ===== ボス更新 =====
+function updateBoss(dt) {
+  if (boss.state === 'dead') {
+    boss.deadT += dt;
+    return;
+  }
+  boss.stateT += dt;
+  const spd2 = boss.phase === 2 ? bossDef.phase2.speedMult : 1;
+
+  const dx = player.x - boss.x, dz = player.z - boss.z;
+  const dist = Math.hypot(dx, dz);
+  const targetFacing = Math.atan2(dx, dz);
+
+  function turnToward(rate) {
+    const d = angDiff(boss.facing, targetFacing);
+    const mx = rate * dt;
+    boss.facing += clamp(d, -mx, mx);
+  }
+
+  if (boss.state === 'intro') {
+    if (boss.stateT > 1.3) { boss.state = 'chase'; boss.stateT = 0; }
+    turnToward(2);
+    boss.walkAmt = Math.max(0, boss.walkAmt - dt * 4);
+    return;
+  }
+
+  if (boss.state === 'stagger') {
+    boss.walkAmt = Math.max(0, boss.walkAmt - dt * 6);
+    if (boss.stateT > 3.2) {
+      boss.state = 'chase'; boss.stateT = 0;
+      boss.posture = 0; boss.cooldown = 0.4;
+    }
+    return;
+  }
+
+  boss.posture = Math.max(0, boss.posture - 5 * dt);
+
+  if (boss.state === 'chase') {
+    turnToward(bossDef.turnRate);
+    boss.cooldown -= dt * spd2;
+    let move = 0;
+    if (dist > 4.0) {
+      move = bossDef.walkSpeed * spd2;
+      boss.x += Math.sin(boss.facing) * move * dt;
+      boss.z += Math.cos(boss.facing) * move * dt;
+    } else if (boss.cooldown > 0) {
+      boss.strafeT -= dt;
+      if (boss.strafeT <= 0) { boss.strafeDir = Math.random() < 0.5 ? -1 : 1; boss.strafeT = 1 + Math.random() * 1.5; }
+      const sx = Math.cos(boss.facing) * boss.strafeDir, sz = -Math.sin(boss.facing) * boss.strafeDir;
+      boss.x += sx * bossDef.strafeSpeed * dt; boss.z += sz * bossDef.strafeSpeed * dt;
+      move = bossDef.strafeSpeed;
+    }
+    clampToArena(boss);
+    if (move > 0) {
+      boss.walkAmt = Math.min(1, boss.walkAmt + dt * 5);
+      boss.walkPhase += dt * move * 1.6;
+    } else {
+      boss.walkAmt = Math.max(0, boss.walkAmt - dt * 5);
+    }
+
+    if (boss.cooldown <= 0 && dist < bossDef.engageDist) {
+      if (boss.queue.length) bossStartAttack(boss.queue.shift());
+      else {
+        const name = bossPickAttack();
+        const c2 = bossDef.phase2.combo;
+        if (boss.phase === 2 && c2 && name === c2.after && Math.random() < c2.chance) {
+          boss.queue.push(...c2.queue);
+        }
+        bossStartAttack(name);
+      }
+    }
+    return;
+  }
+
+  if (boss.state === 'attack') {
+    const atk = boss.atk;
+    boss.atkT += dt * spd2;
+    const t = boss.atkT;
+    boss.walkAmt = Math.max(0, boss.walkAmt - dt * 5);
+
+    if (atk.leap) { if (t < atk.leap.t0) turnToward(2.2); }
+    else if (atk.spin) { if (t < atk.spin.t0) turnToward(1.6); }
+    else if (t < atk.teleEnd) turnToward(1.6);
+
+    if (!boss.swungSfx && t >= atk.teleEnd) { boss.swungSfx = true; sfx.swing(); }
+
+    // 跳躍（プレイヤーの位置めがけて飛ぶ）
+    if (atk.leap) {
+      const lp = atk.leap;
+      if (t >= lp.t0 && !boss.leapFrom) {
+        boss.leapFrom = { x: boss.x, z: boss.z };
+        boss.leapTo = { x: player.x, z: player.z };
+        const dd = Math.hypot(boss.leapTo.x, boss.leapTo.z);
+        if (dd > ARENA_R) { boss.leapTo.x *= ARENA_R / dd; boss.leapTo.z *= ARENA_R / dd; }
+        const fdx = boss.leapTo.x - boss.x, fdz = boss.leapTo.z - boss.z;
+        if (Math.hypot(fdx, fdz) > 0.1) boss.facing = Math.atan2(fdx, fdz);
+      }
+      if (boss.leapFrom) {
+        const u = clamp((t - lp.t0) / (lp.t1 - lp.t0), 0, 1);
+        boss.x = lerp(boss.leapFrom.x, boss.leapTo.x, ease(u));
+        boss.z = lerp(boss.leapFrom.z, boss.leapTo.z, ease(u));
+        boss.y = Math.sin(Math.PI * u) * lp.height;
+        if (u >= 1 && !boss.landed) {
+          boss.landed = true;
+          boss.y = 0;
+          cam.shake = Math.max(cam.shake, 0.55);
+          sfx.slam();
+          spawnSparks({ x: boss.x, y: 0.4, z: boss.z }, 16, 0.81, 0.84, 0.89);
+        }
+      }
+    }
+
+    // 落雷の発生予約（発動時点のターゲット位置をロックする）
+    if (atk.strikes) {
+      for (let i = 0; i < atk.strikes.length; i++) {
+        const sd = atk.strikes[i];
+        if (t >= sd.t && !boss.hitFlags['s' + i]) {
+          boss.hitFlags['s' + i] = true;
+          let tx, tz;
+          if (sd.at === 'boss') { tx = boss.x; tz = boss.z; }
+          else {
+            // プレイヤーの移動を偏差撃ち（回り込みだけでは安全にならない）
+            let lx = player.vx * sd.delay * 0.6, lz = player.vz * sd.delay * 0.6;
+            const ll = Math.hypot(lx, lz);
+            if (ll > 3) { lx *= 3 / ll; lz *= 3 / ll; }
+            tx = player.x + lx; tz = player.z + lz;
+            const dd = Math.hypot(tx, tz);
+            if (dd > ARENA_R) { tx *= ARENA_R / dd; tz *= ARENA_R / dd; }
+          }
+          pendingBolts.push({
+            x: tx, z: tz, r: sd.r,
+            dmg: Math.round(sd.dmg * (boss.phase === 2 ? bossDef.phase2.dmgMult : 1)),
+            timer: sd.delay, delay0: sd.delay, fired: false
+          });
+        }
+      }
+    }
+
+    // 回転斬り
+    if (atk.spin) {
+      const sp = atk.spin;
+      if (t >= sp.t0 && boss.spinBase === null) boss.spinBase = boss.facing;
+      if (boss.spinBase !== null) {
+        const u = clamp((t - sp.t0) / (sp.t1 - sp.t0), 0, 1);
+        boss.facing = boss.spinBase + sp.turns * TAU * u;
+        if (sp.move && u < 1) {
+          boss.x += Math.sin(boss.spinBase) * sp.move * dt * spd2;
+          boss.z += Math.cos(boss.spinBase) * sp.move * dt * spd2;
+          clampToArena(boss);
+        }
+      }
+    }
+
+    for (let i = 0; i < atk.windows.length; i++) {
+      const wnd = atk.windows[i];
+      if (t >= wnd.t0 && t <= wnd.t1) {
+        if (wnd.move) {
+          boss.x += Math.sin(boss.facing) * wnd.move * dt * spd2;
+          boss.z += Math.cos(boss.facing) * wnd.move * dt * spd2;
+          clampToArena(boss);
+        }
+        if (!boss.hitFlags[i] && shapeHitsPlayer(wnd.shape)) {
+          boss.hitFlags[i] = true;
+          const base = wnd.dmg !== undefined ? wnd.dmg : atk.dmg;
+          damagePlayer(Math.round(base * (boss.phase === 2 ? bossDef.phase2.dmgMult : 1)));
+        }
+      }
+    }
+
+    if (t >= atk.dur) {
+      boss.state = 'chase'; boss.stateT = 0; boss.atk = null; boss.y = 0;
+      boss.cooldown = boss.queue.length ? 0.15 : (bossDef.cooldownMin + Math.random() * bossDef.cooldownRand) / spd2;
+    }
+    return;
+  }
+}
+
+// ===== 落雷 =====
+function boltVisual(x, z) {
+  // ギザギザの稲妻を上空から地面へ（fxライン2本重ねで太らせる）
+  for (let pass = 0; pass < 2; pass++) {
+    let px = x + (Math.random() - 0.5) * 1.6;
+    let py = 14, pz = z + (Math.random() - 0.5) * 1.6;
+    const steps = 7;
+    for (let i = 0; i < steps; i++) {
+      const f = (i + 1) / steps;
+      const ny = 14 * (1 - f);
+      const nx = i === steps - 1 ? x : x + (Math.random() - 0.5) * 1.8 * (1 - f * 0.7);
+      const nz = i === steps - 1 ? z : z + (Math.random() - 0.5) * 1.8 * (1 - f * 0.7);
+      pushTrail({ x: px, y: py, z: pz }, { x: nx, y: ny, z: nz }, 0.28, 0.85, 0.92, 1);
+      if (Math.random() < 0.5) { // 枝分かれ
+        pushTrail({ x: nx, y: ny, z: nz },
+          { x: nx + (Math.random() - 0.5) * 2.4, y: ny - 0.8 - Math.random() * 1.5, z: nz + (Math.random() - 0.5) * 2.4 },
+          0.18, 0.6, 0.75, 1);
+      }
+      px = nx; py = ny; pz = nz;
+    }
+  }
+  spawnSparks({ x, y: 0.5, z }, 12, 0.75, 0.85, 1);
+}
+
+function fireBolt(b) {
+  boltVisual(b.x, b.z);
+  sfx.thunder();
+  cam.shake = Math.max(cam.shake, 0.35);
+  game.ltFlash = 0.18;
+  if (b.dmg > 0 && Math.hypot(player.x - b.x, player.z - b.z) < b.r) {
+    damagePlayer(b.dmg, true); // 落雷はパリイ不可（ガードは有効）
+  }
+}
+
+function updateBolts(dt) {
+  for (const b of pendingBolts) {
+    b.timer -= dt;
+    if (b.timer <= 0 && !b.fired) {
+      b.fired = true;
+      fireBolt(b);
+    }
+  }
+  pendingBolts = pendingBolts.filter(b => !b.fired);
+}
+
+// ===== ボス骨格の生成 =====
+function buildBossSkeleton() {
+  const s = bossDef.scale;
+  let pose;
+  if (boss.state === 'attack' && boss.atk) {
+    pose = poseAt(boss.atk.frames, boss.atkT);
+  } else if (boss.state === 'stagger') {
+    const t = Math.min(1, boss.stateT * 3);
+    pose = lerpPose(P({}), P({ crouch: 0.75, lean: 0.55, rp: 0.3, sp: -1.25, sy: 0.3, lp: 0.2 }), ease(t));
+    if (boss.stateT > 2.6) {
+      const u = Math.min(1, (boss.stateT - 2.6) / 0.6);
+      pose = lerpPose(pose, P({}), ease(u));
+    }
+  } else if (boss.state === 'intro') {
+    const t = Math.min(1, boss.stateT / 1.3);
+    const roarP = P({ lean: -0.35, rp: 1.6, ry: 1.2, lp: 1.6, ly: 1.2, sp: 0.9, sy: 1.2 });
+    pose = t < 0.5 ? lerpPose(P({}), roarP, ease(t * 2)) : lerpPose(roarP, P({}), ease((t - 0.5) * 2));
+  } else {
+    pose = P({});
+  }
+  return buildHumanoid(boss.x, boss.z, boss.facing, s, pose, boss.walkPhase, boss.walkAmt, bossDef.swordLen, boss.y);
+}
+
+// ===== リグ・エフェクトの生成 =====
+let playerRig = null, bossRig = null, bossRigs = null;
+let teleMesh = null, playerBlob = null, bossBlob = null;
+let fxGeo = null, fxPosArr = null, fxColArr = null;
+const FX_MAX = 300;
+const strikeMeshes = []; // 落雷予告円のプール
+
+function mkBlob(r) {
+  const m = new THREE.Mesh(
+    new THREE.CircleGeometry(r, 24).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.42, depthWrite: false })
+  );
+  m.position.y = 0.025;
+  scene.add(m);
+  return m;
+}
+
+function initGfxObjects() {
+  playerRig = createHumanRig({
+    s: 1, body: 0x76889f, armor: 0x39496b, swordLen: 0.95, isBoss: false, shield: true, helm: true
+  });
+  // 全ボスのリグを作成し、選択中のものだけ表示する
+  bossRigs = BOSS_DATA.map(def => {
+    const st = def.style || {};
+    const rig = createHumanRig({
+      s: def.scale,
+      body: st.bodyColor || 0xcac1a8,
+      armor: st.armorColor || 0x3a3e4e,
+      swordLen: def.swordLen, isBoss: true, style: st, spear: !!st.spear
+    });
+    rig.group.visible = false;
+    return rig;
+  });
+  bossRig = bossRigs[selectedBoss];
+
+  teleMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ color: 0xff4030, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false })
+  );
+  teleMesh.visible = false;
+  scene.add(teleMesh);
+
+  playerBlob = mkBlob(0.55);
+  bossBlob = mkBlob(1.5);
+
+  // 落雷の予告円プール
+  for (let i = 0; i < 8; i++) {
+    const m = new THREE.Mesh(
+      new THREE.CircleGeometry(1, 26).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x9fd0ff, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
+    );
+    m.visible = false;
+    m.position.y = 0.05;
+    scene.add(m);
+    strikeMeshes.push(m);
+  }
+
+  fxPosArr = new Float32Array(FX_MAX * 6);
+  fxColArr = new Float32Array(FX_MAX * 6);
+  fxGeo = new THREE.BufferGeometry();
+  fxGeo.setAttribute('position', new THREE.BufferAttribute(fxPosArr, 3));
+  fxGeo.setAttribute('color', new THREE.BufferAttribute(fxColArr, 3));
+  const fxLines = new THREE.LineSegments(fxGeo, new THREE.LineBasicMaterial({
+    vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
+  }));
+  fxLines.frustumCulled = false;
+  scene.add(fxLines);
+}
+
+// ===== glTFキャラクターモデル（KayKit, CC0） =====
+// アニメーションはモデル同梱のクリップを再生。位置・向き・当たり判定はゲームロジック側。
+const USE_MODELS = true;
+const MODEL_YAW = 0; // モデルの正面向き補正
+const POSE_DEBUG = location.search.indexOf('pose') >= 0; // 姿勢確認モード
+// 武器の握り角度補正（度）。調整用に ?wr=x,y,z で上書きできる
+const WEAPON_ROT = (() => {
+  const m = /wr=(-?\d+),(-?\d+),(-?\d+)/.exec(location.search);
+  const d = m ? [+m[1], +m[2], +m[3]] : [0, 0, -10]; // 既定: 実機確認で調整済みの握り角度
+  return { x: d[0] * Math.PI / 180, y: d[1] * Math.PI / 180, z: d[2] * Math.PI / 180 };
+})();
+let playerActor = null;
+const bossActors = {}; // ボスid → actor
+
+// プレイヤーモデル（Mixamo統合glb）のアニメクリップ割り当て
+// クリップ名は merge_glb.py で付けた統一名
+const PLAYER_CLIPS = {
+  idle: 'Idle',
+  run: 'Run',
+  roll: 'Roll',
+  attack: 'Attack',
+  parry: 'Parry',
+  guard: 'Guard',
+  heal: 'Heal',
+  hurt: 'Hurt',
+  dead: 'Death'
+};
+
+const _wv1 = gfxOk ? new THREE.Vector3() : null;
+const _wv2 = gfxOk ? new THREE.Vector3() : null;
+
+function buildWeapon(holder, spec, tip) {
+  const matW = new THREE.MeshStandardMaterial({ color: 0xc8d2dd, roughness: 0.25, metalness: 0.9 });
+  const matG = new THREE.MeshStandardMaterial({ color: 0x2f3442, roughness: 0.5, metalness: 0.6 });
+  spec._mats = [matW, matG];
+  const L = spec.len;
+  matW.emissive = new THREE.Color(0x14181e); // 暗所でも刃が読めるようにわずかに発光
+  if (spec.spear) {
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, L * 0.88, 8), matG);
+    shaft.position.y = L * 0.44;
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.13, L * 0.18, 8), matW);
+    head.position.y = L * 0.93;
+    holder.add(shaft, head);
+  } else {
+    // 刀身: 菱形断面（4角柱）で根元から切っ先まで連続的に細くする。
+    // 別パーツの三角先端を付けると矢印に見えるため一体形状にする
+    const bw = Math.max(0.05, L * 0.08);   // 根元の幅
+    const bt = Math.max(0.014, L * 0.011); // 厚み
+    const bladeLen = L * 0.86;
+    const blade = new THREE.Mesh(new THREE.CylinderGeometry(bw * 0.06, bw * 0.5, bladeLen, 4, 1), matW);
+    blade.scale.z = bt / bw; // 断面を薄い菱形に潰す
+    blade.position.y = bladeLen / 2 + 0.09;
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(L * 0.22, 0.04, 0.06), matG);
+    guard.position.y = 0.09;
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.2, 8), matG);
+    grip.position.y = -0.03;
+    holder.add(blade, guard, grip);
+  }
+  tip.position.set(0, L, 0);
+  holder.add(tip);
+}
+
+function buildShieldModel(holder) {
+  const matA = new THREE.MeshStandardMaterial({ color: 0x39496b, roughness: 0.45, metalness: 0.6 });
+  const matM = new THREE.MeshStandardMaterial({ color: 0xc8d2dd, roughness: 0.3, metalness: 0.85 });
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.23, 0.05, 20), matA);
+  const hub = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), matM);
+  hub.position.y = 0.04;
+  holder.add(disc, hub);
+}
+
+function createActorFromGltf(gltf, targetHeight, weaponSpec, tint) {
+  const root = new THREE.Group();
+  scene.add(root);
+  const model = gltf.scene;
+  const box = new THREE.Box3().setFromObject(model);
+  const k = targetHeight / Math.max(0.001, box.max.y - box.min.y);
+  model.scale.setScalar(k);
+  model.position.y = -box.min.y * k; // 足元を地面（y=0）に合わせる
+  root.add(model);
+  const matSet = new Set();
+  model.traverse(o => {
+    if (o.isMesh) {
+      o.frustumCulled = false;
+      if (Array.isArray(o.material)) o.material.forEach(m => matSet.add(m));
+      else matSet.add(o.material);
+    }
+  });
+  const mats = Array.from(matSet);
+  if (tint) {
+    // 色調を暗く沈めて不気味さを出す（ボス用）
+    const tc = new THREE.Color(tint);
+    for (const m of mats) if (m.color) m.color.multiply(tc);
+  }
+  const mixer = new THREE.AnimationMixer(model);
+  const clips = {};
+  gltf.animations.forEach(c => { clips[c.name] = c; });
+  let current = null, currentName = '';
+  function play(name, opts) {
+    opts = opts || {};
+    if (currentName === name && !opts.force) return;
+    const clip = clips[name];
+    if (!clip) return;
+    const a = mixer.clipAction(clip);
+    a.reset();
+    a.setLoop(opts.once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
+    a.clampWhenFinished = true;
+    a.timeScale = opts.dur ? clip.duration / opts.dur : (opts.rate || 1);
+    // 引き伸ばしすぎるとスローモーションになって重さが消えるため下限を設ける
+    // （クリップが先に終わった場合は最終ポーズで静止＝隙の演出になる）
+    if (opts.minRate && a.timeScale < opts.minRate) a.timeScale = opts.minRate;
+    // 長いクリップの冒頭（予備動作）を飛ばして、動きの本体から再生する
+    if (opts.startFrac) a.time = clip.duration * opts.startFrac;
+    if (opts.startAt) a.time = opts.startAt;
+    a.play();
+    if (current && current !== a) current.crossFadeTo(a, opts.fade !== undefined ? opts.fade : 0.18, false);
+    current = a; currentName = name;
+  }
+  // 手のスロットに武器・盾を装着（モデルのスケール分を打ち消す）
+  // リグによりボーン名が違うため候補順に探す（KayKit / Quaternius / Mixamo）。
+  // Three.jsは読み込み時に「:」「.」等の記号をノード名から除去するため、
+  // 記号を無視した正規化名で照合する
+  const normName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const R_SLOTS = ['handslotr', 'weaponr', 'mixamorigrighthand', 'fistr', 'lowerarmr'];
+  const L_SLOTS = ['handslotl', 'weaponl', 'mixamoriglefthand', 'fistl'];
+  let slotR = null, slotL = null, slotRi = 99, slotLi = 99, slotRName = '';
+  model.traverse(o => {
+    const n = normName(o.name);
+    const ri = R_SLOTS.indexOf(n);
+    if (ri >= 0 && ri < slotRi) { slotR = o; slotRi = ri; slotRName = n; }
+    const li = L_SLOTS.indexOf(n);
+    if (li >= 0 && li < slotLi) { slotL = o; slotLi = li; }
+  });
+  const tipMarker = new THREE.Object3D();
+  let weaponMats = [];
+  if (slotR && weaponSpec && weaponSpec.attach !== false) {
+    const holder = new THREE.Group();
+    holder.scale.setScalar(1 / k);
+    if (slotRName === 'lowerarmr') holder.position.y = 0.28; // 前腕ボーンの場合は手の位置まで送る
+    // 握り軸の補正: 手ボーンのY軸は指先方向なので、握った武器の向きへ回す
+    holder.rotation.set(WEAPON_ROT.x, WEAPON_ROT.y, WEAPON_ROT.z);
+    slotR.add(holder);
+    buildWeapon(holder, weaponSpec, tipMarker);
+    weaponMats = weaponSpec._mats || [];
+  } else if (slotR) {
+    // モデル自前の武器を使う場合も、剣閃用に先端マーカーだけ付ける
+    tipMarker.position.set(0, 1.0, 0);
+    slotR.add(tipMarker);
+  }
+  if (slotL && weaponSpec && weaponSpec.shield && weaponSpec.attach !== false) {
+    const holder = new THREE.Group();
+    holder.scale.setScalar(1 / k);
+    slotL.add(holder);
+    buildShieldModel(holder);
+  }
+  function setOpacity(o) {
+    for (const m of mats) { m.transparent = o < 1; m.opacity = o; }
+    for (const m of weaponMats) { m.transparent = o < 1; m.opacity = o; }
+  }
+  return {
+    root, model, mixer, play, setOpacity, clips,
+    slotR, tipMarker, weaponMats,
+    pState: '', pStateT: 0, atkTag: null
+  };
+}
+
+function actorTrail(A, life, cr, cg, cb) {
+  if (!A.slotR) return;
+  A.slotR.getWorldPosition(_wv1);
+  A.tipMarker.getWorldPosition(_wv2);
+  // ワールド座標→ゲーム座標（xを反転して戻す）
+  pushTrail({ x: -_wv1.x, y: _wv1.y, z: _wv1.z }, { x: -_wv2.x, y: _wv2.y, z: _wv2.z }, life, cr, cg, cb);
+}
+
+// file://直開きではfetchが使えないため、models-data.jsに埋め込んだ
+// base64データを直接パースする（MODEL_DATAが無い場合はURL読み込みにフォールバック）
+function loadModel(path, cb) {
+  const loader = new THREE.GLTFLoader();
+  if (typeof MODEL_DATA !== 'undefined' && MODEL_DATA[path]) {
+    const bin = atob(MODEL_DATA[path]);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    loader.parse(buf.buffer, '', cb, (e) => {});
+  } else {
+    loader.load(path, cb, undefined, (e) => {});
+  }
+}
+
+function initModels() {
+  if (!USE_MODELS || !gfxOk || typeof THREE.GLTFLoader === 'undefined') return;
+  // 自キャラ: Mixamo統合モデル（剣・盾はコード生成して手に装着）
+  loadModel('models/PlayerHero.glb', (g) => {
+    playerActor = createActorFromGltf(g, 1.75, { len: 0.95, shield: true });
+    playerActor.root.visible = false;
+  });
+  if (typeof BOSS_DATA !== 'undefined' && Array.isArray(BOSS_DATA)) {
+    BOSS_DATA.forEach(def => {
+      if (!def.model) return;
+      loadModel(def.model, (g) => {
+        const st = def.style || {};
+        bossActors[def.id] = createActorFromGltf(g, def.modelHeight || def.scale * 1.7, {
+          len: def.swordLen, spear: !!st.spear
+        }, st.tint || null);
+        bossActors[def.id].root.visible = false;
+      });
+    });
+  }
+}
+
+// ===== 攻撃予告メッシュ =====
+function makeTeleGeometry(atk) {
+  const sh = atk.windows[0].shape;
+  const shape = new THREE.Shape();
+  if (sh.type === 'rect') {
+    let len = sh.len;
+    if (atk.windows[0].move) len = 10;
+    shape.moveTo(-sh.w / 2, 0);
+    shape.lineTo(sh.w / 2, 0);
+    shape.lineTo(sh.w / 2, len);
+    shape.lineTo(-sh.w / 2, len);
+    shape.closePath();
+  } else {
+    const N = 30;
+    shape.moveTo(Math.sin(-sh.half) * sh.inner, Math.cos(-sh.half) * sh.inner);
+    for (let i = 0; i <= N; i++) {
+      const a = -sh.half + (i / N) * 2 * sh.half;
+      shape.lineTo(Math.sin(a) * sh.r, Math.cos(a) * sh.r);
+    }
+    for (let i = N; i >= 0; i--) {
+      const a = -sh.half + (i / N) * 2 * sh.half;
+      shape.lineTo(Math.sin(a) * Math.max(0.02, sh.inner), Math.cos(a) * Math.max(0.02, sh.inner));
+    }
+    shape.closePath();
+  }
+  const geo = new THREE.ShapeGeometry(shape);
+  geo.rotateX(Math.PI / 2); // XY平面 → XZ平面（地面）
+  return geo;
+}
+
+function updateStrikeTele() {
+  for (const m of strikeMeshes) m.visible = false;
+  let i = 0;
+  for (const b of pendingBolts) {
+    if (b.r <= 0 || b.delay0 <= 0 || i >= strikeMeshes.length) continue;
+    const m = strikeMeshes[i++];
+    m.visible = true;
+    m.position.set(-b.x, 0.05, b.z);
+    m.scale.set(b.r, 1, b.r);
+    m.material.opacity = 0.12 + 0.4 * clamp(1 - b.timer / b.delay0, 0, 1);
+  }
+}
+
+function updateTelegraph() {
+  const show = game.scene !== 'title' && boss.state === 'attack' && boss.atk &&
+    boss.atk.windows.length > 0 &&
+    boss.atkT < boss.atk.teleEnd && !(boss.atk.leap && !boss.leapTo);
+  teleMesh.visible = show;
+  if (!show) return;
+  const atk = boss.atk;
+  if (teleMesh.userData.atk !== atk) {
+    teleMesh.geometry.dispose();
+    teleMesh.geometry = makeTeleGeometry(atk);
+    teleMesh.userData.atk = atk;
+  }
+  const prog = boss.atkT / atk.teleEnd;
+  teleMesh.material.opacity = 0.08 + 0.3 * prog;
+  const cx = atk.leap ? boss.leapTo.x : boss.x;
+  const cz = atk.leap ? boss.leapTo.z : boss.z;
+  teleMesh.position.set(-cx, 0.045, cz);
+  teleMesh.rotation.set(0, -boss.facing, 0);
+}
+
+// ===== エフェクト（火花・剣閃）更新 =====
+function updateFX(dt) {
+  game.ltFlash = Math.max(0, game.ltFlash - dt);
+  for (const p of particles) {
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    p.vy -= 10 * dt;
+    p.life -= dt;
+  }
+  particles = particles.filter(p => p.life > 0);
+  for (const t of trails) t.life -= dt;
+  trails = trails.filter(t => t.life > 0);
+  if (trails.length > 60) trails = trails.slice(-60);
+
+  let n = 0;
+  function put(ax, ay, az, bx, by, bz, r, g, b, alpha) {
+    if (n >= FX_MAX) return;
+    const i6 = n * 6;
+    fxPosArr[i6] = -ax; fxPosArr[i6 + 1] = ay; fxPosArr[i6 + 2] = az;
+    fxPosArr[i6 + 3] = -bx; fxPosArr[i6 + 4] = by; fxPosArr[i6 + 5] = bz;
+    fxColArr[i6] = r * alpha; fxColArr[i6 + 1] = g * alpha; fxColArr[i6 + 2] = b * alpha;
+    fxColArr[i6 + 3] = r * alpha * 0.3; fxColArr[i6 + 4] = g * alpha * 0.3; fxColArr[i6 + 5] = b * alpha * 0.3;
+    n++;
+  }
+  for (const p of particles) {
+    const a = clamp(p.life / p.maxLife, 0, 1);
+    put(p.x, p.y, p.z, p.x - p.vx * 0.04, p.y - p.vy * 0.04, p.z - p.vz * 0.04, p.cr, p.cg, p.cb, a);
+  }
+  for (const t of trails) {
+    const a = clamp(t.life / t.maxLife, 0, 1) * 0.85;
+    put(t.ax, t.ay, t.az, t.bx, t.by, t.bz, t.cr, t.cg, t.cb, a);
+  }
+  fxGeo.setDrawRange(0, n * 2);
+  fxGeo.attributes.position.needsUpdate = true;
+  fxGeo.attributes.color.needsUpdate = true;
+}
+
+// ===== ボス死亡時の崩落 =====
+function updateDebris(dt) {
+  const fade = boss.deadT > 2.0 ? Math.max(0, 1 - (boss.deadT - 2.0) / 0.9) : 1;
+  const act = USE_MODELS ? bossActors[bossDef.id] : null;
+  if (act) { act.setOpacity(fade); return; }
+  bossRig.setOpacity(fade);
+  for (const d of debris3) {
+    d.m.position.x += d.vx * dt;
+    d.m.position.y += d.vy * dt;
+    d.m.position.z += d.vz * dt;
+    d.vy -= 11 * dt;
+    if (d.m.position.y < 0.12 && d.vy < 0) { d.vy *= -0.25; d.vx *= 0.6; d.vz *= 0.6; d.wx *= 0.5; d.wz *= 0.5; }
+    d.m.rotation.x += d.wx * dt;
+    d.m.rotation.z += d.wz * dt;
+  }
+}
+
+// ===== モデル駆動のボス表示 =====
+function updateBossModel(dt) {
+  const A = bossActors[bossDef.id];
+  const spd2 = boss.phase === 2 ? bossDef.phase2.speedMult : 1;
+  A.root.visible = true;
+  A.root.position.set(-boss.x, boss.y, boss.z);
+  A.root.rotation.y = -boss.facing + MODEL_YAW;
+
+  const C = bossDef.clips || {};
+  if (boss.state === 'dead') {
+    A.play(C.dead || 'Death', { once: true, dur: 2.0 });
+  } else if (boss.state === 'intro') {
+    A.play(C.intro || 'Wave', { once: true, dur: 1.5, force: boss.stateT < 0.05 && A.pState !== 'intro' });
+  } else if (boss.state === 'stagger') {
+    A.play(C.stagger || 'HitReact', { once: true, dur: 1.3 });
+  } else if (boss.state === 'attack' && boss.atk) {
+    if (A.atkTag !== boss.atkStamp) {
+      A.atkTag = boss.atkStamp;
+      const atk = boss.atk;
+      const clipName = atk.clip || C.attack || 'Weapon';
+      const clip = A.clips[clipName];
+      const durG = atk.dur / spd2;
+      if (clip) {
+        // クリップの「命中の瞬間」（既定55%、attack側のclipImpactで調整可）が
+        // 当たり判定の開始時刻とちょうど重なるよう、再生開始位置を逆算する
+        const rate = Math.max(clip.duration / durG, 0.85);
+        const impact = atk.clipImpact !== undefined ? atk.clipImpact : 0.55;
+        const w0 = atk.windows.length ? atk.windows[0].t0 : atk.teleEnd;
+        const startAt = Math.max(0, impact * clip.duration - (w0 / spd2) * rate);
+        A.play(clipName, { once: true, rate, startAt, fade: 0.1, force: true });
+      } else {
+        A.play(clipName, { once: true, dur: durG, minRate: 0.85, fade: 0.1, force: true });
+      }
+    }
+  } else { // chase
+    if (boss.walkAmt > 0.25) {
+      // 移動速度と歩幅を合わせて足滑りを防ぐ（巨体ほど歩みはゆっくりに見える）
+      const wrate = clamp(bossDef.walkSpeed / (1.5 * ((bossDef.modelHeight || 4.5) / 1.75)), 0.4, 1.6);
+      A.play(C.walk || 'Walk', { rate: wrate });
+    } else {
+      A.play(C.idle || 'Idle', {});
+    }
+  }
+  A.pState = boss.state;
+
+  // 第2形態: 武器が雷を纏う
+  if (bossDef.style.storm && boss.phase === 2 && boss.state !== 'dead') {
+    A.weaponMats.forEach(m => { if (m.emissive) m.emissive.setHex(0x2a4dcc); });
+    if (Math.random() < 0.45 && A.slotR) {
+      A.tipMarker.getWorldPosition(_wv1);
+      pushTrail({ x: -_wv1.x, y: _wv1.y, z: _wv1.z },
+        { x: -_wv1.x + (Math.random() - 0.5), y: _wv1.y + (Math.random() - 0.5), z: _wv1.z + (Math.random() - 0.5) },
+        0.12, 0.7, 0.85, 1);
+    }
+  } else {
+    A.weaponMats.forEach(m => { if (m.emissive) m.emissive.setHex(0x000000); });
+  }
+
+  // 攻撃発生中の武器の軌跡
+  if (boss.state === 'attack' && boss.atk && boss.atk.windows.length) {
+    const wLast = boss.atk.windows[boss.atk.windows.length - 1];
+    if (boss.atkT >= boss.atk.teleEnd - 0.05 && boss.atkT <= wLast.t1 + 0.1) {
+      actorTrail(A, 0.22, 1, 0.94, 0.7);
+    }
+  }
+
+  A.mixer.update(dt);
+
+  bossBlob.visible = boss.state !== 'dead';
+  bossBlob.position.set(-boss.x, 0.03, boss.z);
+  bossBlob.material.opacity = boss.y > 0.1 ? 0.3 : 0.42;
+  const bs2 = 1 + boss.y * 0.08;
+  bossBlob.scale.set(bs2, 1, bs2);
+}
+
+// ===== リグ更新（ポーズ計算 → メッシュ配置） =====
+function updateBossRig(dt) {
+  if (!bossDef) { bossRig.group.visible = false; return; }
+  const act = USE_MODELS ? bossActors[bossDef.id] : null;
+  if (act) {
+    bossRig.group.visible = false;
+    updateBossModel(dt);
+    return;
+  }
+  if (boss.state === 'dead') { bossBlob.visible = false; return; } // 崩落はupdateDebrisが担当
+  bossRig.group.visible = true;
+  const sk = buildBossSkeleton();
+  bossRig.update(sk.pts, boss.facing);
+
+  // スタッガー・第2形態の見た目
+  bossRig.matBody.emissive.setHex(boss.state === 'stagger' ? 0x332600 : 0x000000);
+  if (bossRig.eyeMat) {
+    const st = bossDef.style;
+    bossRig.eyeMat.color.set(boss.phase === 2 ? (st.eyePhase2 || st.eye) : st.eye);
+    const es = boss.phase === 2 ? 1.7 : 1;
+    if (bossRig.eyeR) { bossRig.eyeR.scale.setScalar(es); bossRig.eyeL.scale.setScalar(es); }
+  }
+  // 第2形態: 武器が雷を纏う
+  if (bossDef.style.storm && boss.phase === 2) {
+    bossRig.matBlade.emissive.setHex(0x2a4dcc);
+    if (Math.random() < 0.45 && sk.pts.swordTip) {
+      const wp = lerp3(sk.pts.handR, sk.pts.swordTip, Math.random());
+      pushTrail(wp, { x: wp.x + (Math.random() - 0.5) * 0.9, y: wp.y + (Math.random() - 0.5) * 0.9, z: wp.z + (Math.random() - 0.5) * 0.9 },
+        0.12, 0.7, 0.85, 1);
+    }
+  } else {
+    bossRig.matBlade.emissive.setHex(0x000000);
+  }
+
+  // 剣の軌跡
+  if (boss.state === 'attack' && boss.atk && sk.pts.swordTip) {
+    const t = boss.atkT, atk = boss.atk;
+    const wLast = atk.windows[atk.windows.length - 1];
+    if (t >= atk.teleEnd - 0.05 && t <= wLast.t1 + 0.1) {
+      pushTrail(sk.pts.handR, sk.pts.swordTip, 0.22, 1, 0.94, 0.7);
+    }
+  }
+
+  // 足元の影
+  bossBlob.visible = true;
+  bossBlob.position.set(-boss.x, 0.03, boss.z);
+  bossBlob.material.opacity = boss.y > 0.1 ? 0.3 : 0.42;
+  const bs = 1 + boss.y * 0.08;
+  bossBlob.scale.set(bs, 1, bs);
+}
+
+// ===== モデル駆動のプレイヤー表示 =====
+function updatePlayerModel(dt) {
+  const A = playerActor;
+  const show = game.scene !== 'title';
+  A.root.visible = show;
+  playerBlob.visible = show;
+  if (!show) { A.pState = 'title'; return; }
+  A.root.position.set(-player.x, 0, player.z);
+  A.root.rotation.y = -player.facing + MODEL_YAW;
+
+  // 同じ状態への再突入（連続攻撃など）を検出してクリップを再スタート
+  const restart = A.pState !== player.state || player.stateT < A.pStateT;
+  A.pState = player.state; A.pStateT = player.stateT;
+
+  // 各行動: クリップ全体を高速圧縮せず、予備動作を飛ばして自然な速度で再生する
+  if (player.state === 'roll') {
+    // 後方回避は専用のバックステップモーション
+    const f = { x: Math.sin(player.facing), z: Math.cos(player.facing) };
+    const back = (player.rollDx * f.x + player.rollDz * f.z) < -0.5;
+    if (back && A.clips['Backstep']) {
+      A.play('Backstep', { once: true, rate: 2.0, startFrac: 0.08, fade: 0.05, force: restart });
+    } else {
+      A.play(PLAYER_CLIPS.roll, { once: true, rate: 2.4, startFrac: 0.12, fade: 0.05, force: restart });
+    }
+  } else if (player.state === 'attack') {
+    // 2種の斬りを交互に出して単調さを消す
+    if (restart) A.altSwing = !A.altSwing;
+    const clip = A.altSwing && A.clips['Attack2'] ? 'Attack2' : PLAYER_CLIPS.attack;
+    A.play(clip, { once: true, rate: 2.0, startFrac: 0.22, fade: 0.05, force: restart });
+  } else if (player.state === 'parry') {
+    A.play(PLAYER_CLIPS.parry, { once: true, rate: 1.6, startFrac: 0.05, fade: 0.06, force: restart });
+  } else if (player.state === 'heal') {
+    A.play(PLAYER_CLIPS.heal, { once: true, rate: 1.5, startFrac: 0.12, fade: 0.1, force: restart });
+  } else if (player.state === 'hurt') {
+    A.play(PLAYER_CLIPS.hurt, { once: true, rate: 1.8, startFrac: 0.05, fade: 0.06, force: restart });
+  } else if (player.state === 'dead') {
+    A.play(PLAYER_CLIPS.dead, { once: true, dur: 1.3 });
+  } else if (player.guarding) {
+    A.play(PLAYER_CLIPS.guard, { fade: 0.12 });
+  } else if (Math.hypot(player.vx, player.vz) > 0.6) {
+    // ロックオン中の移動: 進行方向に応じて前進/後退/左右の走りを使い分ける
+    const spd = Math.hypot(player.vx, player.vz);
+    const f = { x: Math.sin(player.facing), z: Math.cos(player.facing) };
+    const fd = (player.vx * f.x + player.vz * f.z) / spd;        // 前後成分
+    const rd = (player.vx * f.z - player.vz * f.x) / spd;        // 左右成分
+    let runClip = PLAYER_CLIPS.run;
+    if (Math.abs(fd) >= Math.abs(rd)) {
+      if (fd < 0 && A.clips['RunBack']) runClip = 'RunBack';
+    } else {
+      if (rd >= 0 && A.clips['RunRight']) runClip = 'RunRight';
+      else if (rd < 0 && A.clips['RunLeft']) runClip = 'RunLeft';
+    }
+    A.play(runClip, { rate: clamp(spd / 3.2, 0.6, 1.5) });
+  } else {
+    A.play(PLAYER_CLIPS.idle, {});
+  }
+
+  A.setOpacity(player.iframe ? 0.45 : 1);
+  A.mixer.update(dt);
+
+  // 攻撃の剣閃
+  if (player.state === 'attack' && player.stateT > 0.13 && player.stateT < 0.3) {
+    actorTrail(A, 0.16, 0.75, 0.92, 1);
+  }
+  if (player.state === 'heal' && Math.random() < 0.5) {
+    spawnSparks({ x: player.x, y: 0.6 + Math.random(), z: player.z }, 1, 1, 0.84, 0.42);
+  }
+  playerBlob.position.set(-player.x, 0.028, player.z);
+}
+
+function updatePlayerRig(dt) {
+  if (USE_MODELS && playerActor) {
+    playerRig.group.visible = false;
+    updatePlayerModel(dt);
+    return;
+  }
+  if (game.scene === 'title') { playerRig.group.visible = false; playerBlob.visible = false; return; }
+  playerRig.group.visible = true;
+  playerBlob.visible = true;
+
+  let pose, walkPhase = player.walkPhase, walkAmt = player.walkAmt;
+
+  if (player.state === 'attack') {
+    const frames = [
+      [0,    P({ rp: 2.3, re: 0.3, sp: 1.5, sy: -0.6, twist: -0.4 })],
+      [0.14, P({ rp: 2.35, re: 0.28, sp: 1.55, sy: -0.65, twist: -0.45 })],
+      [0.22, P({ rp: 0.7, re: 0.2, sp: -0.5, sy: 0.7, twist: 0.5, lean: 0.25 })],
+      [0.42, P({})]
+    ];
+    pose = poseAt(frames, player.stateT);
+  } else if (player.state === 'heal') {
+    pose = P({ lp: 2.4, le: 2.0, ly: 0.15, lean: -0.08 });
+  } else if (player.state === 'parry') {
+    const frames = [
+      [0,    P({ lp: 2.1, le: 0.5, ly: 1.1, twist: 0.35, sp: -0.6, sy: 0.4 })],
+      [0.2,  P({ lp: 1.3, le: 1.1, ly: 0.15, twist: -0.25, sp: -0.6, sy: 0.4 })],
+      [0.55, P({})]
+    ];
+    pose = poseAt(frames, player.stateT);
+  } else if (player.state === 'hurt') {
+    pose = P({ lean: -0.35, rp: 0.6, lp: 0.6 });
+  } else if (player.state === 'dead') {
+    pose = P({ crouch: 0.6, lean: 0.3 });
+  } else if (player.guarding) {
+    // 盾を正面に構える
+    pose = P({ lp: 1.4, le: 0.9, ly: 0.05, rp: 0.5, re: 0.9, sp: -0.5, sy: 0.5, crouch: 0.08 });
+  } else {
+    pose = P({ sp: -0.62, sy: 0.35 });
+  }
+
+  const rolling = player.state === 'roll';
+  if (rolling) {
+    pose = P({ crouch: 1, rp: 0.9, re: 2.0, lp: 0.9, le: 2.0, lean: 0.5, sp: -0.9, sy: 0.2 });
+    walkAmt = 0;
+  }
+
+  const facing = rolling ? Math.atan2(player.rollDx, player.rollDz) : player.facing;
+  const sk = buildHumanoid(player.x, player.z, facing, 1, pose, walkPhase, walkAmt, 0.95);
+  const pts = sk.pts;
+
+  if (rolling) {
+    // 回転しながらのロール
+    const ang = (player.stateT / 0.46) * TAU;
+    const axis = { x: player.rollDz, y: 0, z: -player.rollDx };
+    const c = { x: player.x, y: 0.62, z: player.z };
+    for (const k in pts) {
+      const r = rotAxis({ x: pts[k].x - c.x, y: pts[k].y - c.y, z: pts[k].z - c.z }, axis, ang);
+      pts[k] = { x: c.x + r.x, y: c.y + r.y, z: c.z + r.z };
+    }
+  }
+  if (player.state === 'dead') {
+    // 倒れる
+    const t = Math.min(1, player.deadT / 0.7);
+    const ang = ease(t) * Math.PI / 2;
+    const axis = { x: Math.cos(player.facing), y: 0, z: -Math.sin(player.facing) };
+    const c = { x: player.x, y: 0.15, z: player.z };
+    for (const k in pts) {
+      const r = rotAxis({ x: pts[k].x - c.x, y: pts[k].y - c.y, z: pts[k].z - c.z }, axis, ang);
+      pts[k] = { x: c.x + r.x, y: Math.max(0.06, c.y + r.y), z: c.z + r.z };
+    }
+  }
+
+  playerRig.update(pts, facing);
+  playerRig.setOpacity(player.iframe ? 0.4 : 1);
+  playerRig.matBody.emissive.setHex(
+    player.state === 'hurt' && player.stateT < 0.15 && player.stateT >= 0 ? 0x551111 : 0x000000
+  );
+
+  // 攻撃の剣閃
+  if (player.state === 'attack' && player.stateT > 0.13 && player.stateT < 0.3) {
+    pushTrail(pts.handR, pts.swordTip, 0.16, 0.75, 0.92, 1);
+  }
+  // 回復の光
+  if (player.state === 'heal' && Math.random() < 0.5) {
+    spawnSparks({ x: player.x, y: 0.6 + Math.random(), z: player.z }, 1, 1, 0.84, 0.42);
+  }
+
+  playerBlob.position.set(-player.x, 0.028, player.z);
+}
+
+// ===== カメラ更新 =====
+function updateCamera(dt) {
+  const bdx = boss.x - player.x, bdz = boss.z - player.z;
+  const bd = Math.hypot(bdx, bdz) || 1;
+  const fx = bdx / bd, fz = bdz / bd;
+  const tx = player.x - fx * 4.7;
+  const tz = player.z - fz * 4.7;
+  const ty = 2.7;
+  const k = Math.min(1, dt * 7);
+  cam.x = lerp(cam.x, tx, k);
+  cam.y = lerp(cam.y, ty, k);
+  cam.z = lerp(cam.z, tz, k);
+
+  cam.lx = lerp(player.x, boss.x, 0.34);
+  cam.lz = lerp(player.z, boss.z, 0.34);
+  // ジャンプ中は少し見上げるが、超高空（画面外へ消える高さ）では通常視点に戻し、
+  // 着地位置は地面の予告円で読ませる
+  const lookUp = Math.min(boss.y * 0.45, 1.8) * clamp(1 - (boss.y - 5) / 4, 0, 1);
+  cam.ly = lerp(1.4, 2.4, clamp((bd - 3) / 10, 0, 1)) + lookUp;
+
+  if (cam.shake > 0) {
+    cam.shake = Math.max(0, cam.shake - dt * 1.6);
+    cam.x += (Math.random() - 0.5) * cam.shake * 0.35;
+    cam.y += (Math.random() - 0.5) * cam.shake * 0.35;
+  }
+}
+
+// ===== HUD更新 =====
+const el = (id) => document.getElementById(id);
+function updateHUD() {
+  el('hpFill').style.width = (player.hp / PLAYER_HP_MAX * 100) + '%';
+  el('stFill').style.width = (player.st / STAMINA_MAX * 100) + '%';
+  el('bossHpFill').style.width = (boss.hp / BOSS_HP_MAX * 100) + '%';
+  el('bossPoFill').style.width = (boss.posture / POSTURE_MAX * 100) + '%';
+  const t = game.time;
+  const m = Math.floor(t / 60), s = (t % 60).toFixed(1);
+  el('timerLbl').textContent = m + ':' + (s < 10 ? '0' : '') + s;
+}
+function updateHealBtn() {
+  el('healCnt').textContent = String(player.estus);
+}
+
+// ===== DOMオーバーレイ（スティック・被弾フラッシュ） =====
+function updateDomFx() {
+  const sb = el('stickBase'), sk = el('stickKnob');
+  if (input.stickId !== null) {
+    sb.style.display = 'block'; sk.style.display = 'block';
+    sb.style.left = input.stickOx + 'px'; sb.style.top = input.stickOy + 'px';
+    sk.style.left = (input.stickOx + input.stickX * 46) + 'px';
+    sk.style.top = (input.stickOy + input.stickY * 46) + 'px';
+  } else {
+    sb.style.display = 'none'; sk.style.display = 'none';
+  }
+  const f = el('dmgFlash');
+  if (player.state === 'hurt' && player.stateT >= 0 && player.stateT < 0.25) {
+    f.style.opacity = String(0.9 * (1 - player.stateT / 0.25));
+  } else {
+    f.style.opacity = '0';
+  }
+  el('ltFlash').style.opacity = String(game.ltFlash > 0 ? (game.ltFlash / 0.18) * 0.55 : 0);
+}
+
+// ===== 画面遷移 =====
+function showScreen(name) {
+  ['titleScreen', 'deadScreen', 'winScreen'].forEach(id => {
+    el(id).classList.remove('show', 'dark');
+  });
+  const hudOn = name === null;
+  el('hud').style.display = hudOn ? 'block' : 'none';
+  document.querySelectorAll('.btn').forEach(b => b.style.display = hudOn ? 'flex' : 'none');
+  if (name) el(name).classList.add('show');
+}
+
+function startBattle() {
+  if (!bossDef || !gfxOk) return;
+  player.x = 0; player.z = -8;
+  player.hp = PLAYER_HP_MAX; player.st = STAMINA_MAX;
+  player.state = 'idle'; player.stateT = 0; player.estus = 3;
+  player.walkAmt = 0; player.deadT = 0; player.guarding = false;
+  boss.x = 0; boss.z = 4; boss.y = 0; boss.facing = Math.PI;
+  boss.leapFrom = null; boss.leapTo = null; boss.landed = false; boss.spinBase = null;
+  boss.hp = BOSS_HP_MAX; boss.posture = 0; boss.phase = 1;
+  boss.state = 'intro'; boss.stateT = 0; boss.atk = null;
+  boss.cooldown = 1.2; boss.queue = []; boss.walkAmt = 0;
+  particles = []; trails = []; debris3 = []; pendingBolts = [];
+  game.ltFlash = 0;
+  bossRig.setOpacity(1);
+  const act0 = bossActors[bossDef.id];
+  if (act0) { act0.setOpacity(1); act0.atkTag = null; act0.pState = ''; }
+  if (playerActor) { playerActor.setOpacity(1); playerActor.pState = ''; }
+  game.time = 0; game.slow = 1; game.freeze = 0;
+  game.scene = 'battle';
+  actions.length = 0;
+  cam.x = 0; cam.y = 2.7; cam.z = -13;
+  updateHealBtn();
+  showScreen(null);
+  sfx.gong();
+}
+
+function showDead() {
+  game.scene = 'dead';
+  sfx.youDied();
+  showScreen('deadScreen');
+  requestAnimationFrame(() => el('deadScreen').classList.add('dark'));
+}
+
+// ===== ボスごとの記録（旧バージョンの共通キーからも読めるようにする） =====
+function getClears(id) {
+  let v = storage.get('clears_' + id, null);
+  if (v === null && id === 'gram') v = storage.get('clears', 0);
+  return v || 0;
+}
+function getBest(id) {
+  let v = storage.get('best_' + id, null);
+  if (v === null && id === 'gram') v = storage.get('bestTime', null);
+  return v;
+}
+
+function showWin(clearTime) {
+  if (game.scene !== 'battle') return;
+  game.scene = 'win';
+  sfx.win();
+  const id = bossDef.id;
+  const clears = getClears(id) + 1;
+  storage.set('clears_' + id, clears);
+  const best = getBest(id);
+  let msg;
+  const fmt = (t) => Math.floor(t / 60) + ':' + String((t % 60).toFixed(1)).padStart(4, '0');
+  if (best === null || clearTime < best) {
+    storage.set('best_' + id, clearTime);
+    msg = 'Time ' + fmt(clearTime) + ' (New Record!)';
+  } else {
+    msg = 'Time ' + fmt(clearTime) + ' (Best ' + fmt(best) + ')';
+  }
+  el('winInfo').textContent = msg + ' / Victories: ' + clears;
+  showScreen('winScreen');
+  requestAnimationFrame(() => el('winScreen').classList.add('dark'));
+}
+
+// ===== ボス選択 =====
+let selectedBoss = 0;
+
+function renderBossSelect() {
+  const wrap = el('bossSelect');
+  wrap.textContent = '';
+  if (typeof BOSS_DATA === 'undefined' || !Array.isArray(BOSS_DATA)) return;
+  BOSS_DATA.forEach((def, i) => {
+    const b = document.createElement('button');
+    b.className = 'bossBtn' + (i === selectedBoss ? ' sel' : '');
+    b.textContent = def.name + (getClears(def.id) > 0 ? ' ✓' : '');
+    b.addEventListener('click', () => { audioInit(); selectBoss(i); });
+    wrap.appendChild(b);
+  });
+}
+
+function selectBoss(i) {
+  selectedBoss = i;
+  storage.set('selBoss', i);
+  loadBossDef(BOSS_DATA[i]);
+  if (bossRigs) {
+    bossRigs.forEach(r => { r.group.visible = false; });
+    bossRig = bossRigs[i];
+  }
+  for (const id in bossActors) bossActors[id].root.visible = false;
+  showTitle();
+}
+
+function showTitle() {
+  game.scene = 'title';
+  // タイトルの背景用にボスを定位置へ戻す
+  boss.x = 0; boss.z = 4; boss.y = 0; boss.facing = Math.PI;
+  boss.state = 'intro'; boss.stateT = 0; boss.atk = null;
+  boss.phase = 1; boss.walkAmt = 0;
+  debris3 = []; trails = []; particles = []; pendingBolts = [];
+  game.ltFlash = 0;
+  if (bossRig) bossRig.setOpacity(1);
+  if (bossDef && bossActors[bossDef.id]) { bossActors[bossDef.id].setOpacity(1); bossActors[bossDef.id].pState = ''; }
+  renderBossSelect();
+  const best = bossDef ? getBest(bossDef.id) : null;
+  const clears = bossDef ? getClears(bossDef.id) : 0;
+  el('bestLbl').textContent = best !== null
+    ? 'Best Time ' + Math.floor(best / 60) + ':' + String((best % 60).toFixed(1)).padStart(4, '0') + ' / Victories: ' + clears
+    : (clears > 0 ? 'Victories: ' + clears : '');
+  if (!bossDef) el('bestLbl').textContent = 'Error: failed to load boss-data.js';
+  if (!gfxOk) el('bestLbl').textContent = 'Error: failed to load three.min.js';
+  showScreen('titleScreen');
+}
+
+el('btnStart').addEventListener('click', () => { audioInit(); startBattle(); });
+el('btnRetry').addEventListener('click', () => { audioInit(); startBattle(); });
+el('btnTitle').addEventListener('click', () => { showTitle(); });
+
+// ===== メインループ =====
+let lastT = 0;
+function frame(ts) {
+  requestAnimationFrame(frame);
+  if (!gfxOk) return;
+  if (!lastT) { lastT = ts; return; }
+  const rawDt = Math.min(0.05, (ts - lastT) / 1000);
+  lastT = ts;
+
+  if (game.freeze > 0) {
+    game.freeze -= rawDt;
+    render(0);
+    return;
+  }
+  if (game.scene === 'battle' && player.state === 'dead') {
+    game.slow = Math.max(0.3, game.slow - rawDt * 2);
+  } else if (game.slow < 1 && game.scene === 'battle') {
+    game.slow = Math.min(1, game.slow + rawDt * 3);
+  }
+  const dt = rawDt * game.slow;
+
+  if (game.scene === 'battle' || game.scene === 'dead' || game.scene === 'win') {
+    if (game.scene === 'battle' && player.state !== 'dead' && boss.state !== 'dead') {
+      game.time += dt;
+    }
+    if (player.state !== 'dead') updatePlayer(dt);
+    else { player.deadT += dt; actions.length = 0; }
+    if (POSE_DEBUG) { boss.state = 'chase'; boss.walkAmt = 0; } // 姿勢確認用: ボスを待機で静止
+    else if (game.scene === 'battle' || boss.state === 'dead') updateBoss(dt);
+    updateBolts(dt);
+    if (boss.state === 'dead') updateDebris(dt);
+    updateCamera(dt);
+    updateHUD();
+  } else {
+    // タイトル: ゆっくり回るカメラでボスを見せる
+    const a = ts / 1000 * 0.12;
+    cam.x = Math.sin(a) * 9;
+    cam.z = 4 + Math.cos(a) * 9;
+    cam.y = 2.6;
+    cam.lx = boss.x; cam.ly = 3.0; cam.lz = boss.z;
+    boss.walkAmt = 0;
+    actions.length = 0;
+  }
+
+  render(dt);
+}
+
+function render(dt) {
+  updateFX(dt);
+  updateTelegraph();
+  updateStrikeTele();
+  updateBossRig(dt);
+  updatePlayerRig(dt);
+  updateDomFx();
+  camera.position.set(-cam.x, cam.y, cam.z);
+  camera.lookAt(-cam.lx, cam.ly, cam.lz);
+  renderer.render(scene, camera);
+}
+
+document.addEventListener('visibilitychange', () => { lastT = 0; });
+
+// ===== 初期化 =====
+if (typeof BOSS_DATA !== 'undefined' && Array.isArray(BOSS_DATA) && BOSS_DATA.length > 0) {
+  selectedBoss = clamp(storage.get('selBoss', 0), 0, BOSS_DATA.length - 1);
+  // 動作確認用: ?boss=N でボスを指定できる
+  const qb = /boss=(\d+)/.exec(location.search);
+  if (qb) selectedBoss = clamp(parseInt(qb[1], 10), 0, BOSS_DATA.length - 1);
+  loadBossDef(BOSS_DATA[selectedBoss]);
+} else {
+  document.getElementById('btnStart').disabled = true;
+}
+if (!gfxOk) document.getElementById('btnStart').disabled = true;
+if (gfxOk && bossDef) { initGfxObjects(); initModels(); }
+showTitle();
+requestAnimationFrame(frame);
+// 動作確認用: ?auto を付けると戦闘を自動開始する
+if (location.search.indexOf('auto') >= 0) startBattle();
+</script>
+</body>
+</html>
