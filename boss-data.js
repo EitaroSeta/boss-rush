@@ -42,7 +42,18 @@
                dmg: 0 なら演出のみ（着地の雷爆発など）
    ■ style の追加オプション
      spear:true  = 武器を長槍にする / storm:true = 第2形態で武器が雷を纏う
-     bodyColor / armorColor = 体・鎧の色（'#rrggbb'）
+     bodyColor / armorColor = 体・鎧の色（フォールバック用カプセル体, '#rrggbb'）
+     tint = 3Dモデルの色調を暗く沈める乗算色（'#rrggbb'）
+
+   ■ 3Dモデル関連（Mixamo統合glb使用時）
+     model       : 'models/Xxx.glb'（models-data.jsに埋め込まれたキーと一致させる）
+     modelHeight : 表示身長（ワールド単位。カプセル体の scale*1.7 相当に合わせる）
+     clips       : 状態→アニメクリップ名の割り当て
+                   { idle, walk, intro, stagger, dead }（クリップ名はtools/merge_glb.pyで付けた統一名）
+     各攻撃の clip       : その攻撃で再生するクリップ名
+     各攻撃の clipImpact : クリップ内で「武器が当たる瞬間」の位置（0〜1、既定0.55）。
+                   エンジンがこの地点を判定開始(windows[0].t0)に同期させる。
+                   「振りと判定がズレる」と感じたらこの値を調整する
      frames  : ポーズのキーフレーム [[時刻, ポーズ], ...]
                ポーズは部分指定でよい（エンジン側で既定値が補完される）
                lean(前傾) twist(捻り) crouch(屈み)
