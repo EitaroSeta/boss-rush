@@ -56,6 +56,14 @@ WASD/矢印: 移動 ／ Space or K: 回避 ／ J or Enter: 攻撃 ／ I or Shift
 | `models/` | 元のglbモデルとライセンス文（KayKit Character Packs, **CC0**） |
 | `classic.html` | 旧ワイヤーフレーム版（Canvas 2D自前描画・依存ゼロ）。比較用に保存 |
 
+### ライセンス
+
+| 対象 | ライセンス |
+|---|---|
+| オリジナルコード（index.html, boss-data.js, classic.html 等） | MIT（LICENSE参照） |
+| three.min.js / GLTFLoader.js | MIT（Copyright three.js authors） |
+| models-data.js（キャラクターモデル・アニメーションの埋め込みデータ） | **MITの対象外**。Mixamo規約に基づきゲームに組み込んだ形でのみ利用可。単体での抽出・再配布は不可 |
+
 ### クレジット
 
 - キャラクターモデル/アニメーション: [Mixamo](https://www.mixamo.com/)（Adobe）

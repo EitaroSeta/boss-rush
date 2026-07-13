@@ -1,3 +1,24 @@
+Scope of this license
+---------------------
+
+The MIT License below applies to the original code in this repository
+(index.html, boss-data.js, classic.html, and any other files not listed
+below).
+
+The following files are NOT covered by the MIT License:
+
+- models-data.js
+    Contains character models and animations derived from Adobe Mixamo
+    content, embedded for use within this game. Subject to the Adobe /
+    Mixamo terms of use. Extracting or redistributing these assets on a
+    standalone basis is not permitted.
+
+- three.min.js, GLTFLoader.js
+    Part of three.js (https://threejs.org/), distributed under the MIT
+    License, Copyright (c) 2010-2022 three.js authors.
+
+---------------------
+
 MIT License
 
 Copyright (c) 2026 seta
