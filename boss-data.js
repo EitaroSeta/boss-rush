@@ -86,7 +86,7 @@ const BOSS_DATA = [
   {
     id: 'gram',
     name: 'Gram, Knight of Bones', // 骸ノ騎士 グラム
-    hp: 150,
+    hp: 250,
     postureMax: 100,
     scale: 2.7,
     swordLen: 2.6,
@@ -253,7 +253,7 @@ const BOSS_DATA = [
   {
     id: 'volga',
     name: 'Volga, King of Thunder', // 雷ノ王 ヴォルガ
-    hp: 300,
+    hp: 750,
     postureMax: 110,
     scale: 2.9,
     swordLen: 3.4,
