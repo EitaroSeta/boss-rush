@@ -57,10 +57,10 @@
   }
   .btn.pressed { background: rgba(120,150,220,.5); }
   /* 右手だけで全アクション: 親指の円弧に沿ったダイヤ配置（左手は移動専任） */
-  #btnAttack { right: 18px;  bottom: 90px;  width: 76px; height: 76px; font-size: 15px; }
+  #btnAttack { right: 18px;  bottom: 90px;  width: 76px; height: 76px; font-size: 15px; flex-direction: column; line-height: 1.15; }
   #btnRoll   { right: 102px; bottom: 40px;  width: 66px; height: 66px; font-size: 13px; }
   #btnGuard  { right: 102px; bottom: 150px; width: 66px; height: 66px; font-size: 13px; flex-direction: column; line-height: 1.15; }
-  #btnGuard .subLbl { font-size: 9px; font-weight: normal; color: rgba(223,230,242,.7); }
+  .btn .subLbl { font-size: 9px; font-weight: normal; color: rgba(223,230,242,.7); }
   #btnHeal   { right: 28px;  bottom: 192px; width: 56px; height: 56px; font-size: 12px; }
   #healCnt   { position: absolute; right: -4px; top: -4px; width: 20px; height: 20px; border-radius: 50%;
                background: #b4862c; color: #fff; font-size: 12px; line-height: 20px; }
@@ -134,7 +134,7 @@
 </div>
 
 <!-- 操作ボタン（右手ダイヤ配置。ガードは長押し、タップでパリイ） -->
-<div id="btnAttack" class="btn">Attack</div>
+<div id="btnAttack" class="btn">Attack<span class="subLbl">hold: Heavy</span></div>
 <div id="btnRoll" class="btn">Dodge</div>
 <div id="btnGuard" class="btn">Guard<span class="subLbl">tap: Parry</span></div>
 <div id="btnHeal" class="btn">Heal<span id="healCnt">3</span></div>
@@ -145,10 +145,11 @@
   <div class="sub">BOSS RUSH</div>
   <div class="desc">
     Drag left half: Move (circle around the boss)<br>
-    Right: Attack / Dodge (roll with i-frames)<br>
+    Attack: tap for a quick strike, hold for a heavy one<br>
+    Dodge: roll with i-frames (attack while rolling for a lunge)<br>
     Guard: hold to block, tap to parry<br>
     Heal: 3 charges (vulnerable while drinking)<br>
-    <span style="color:#6f7890">PC: WASD Move / Space Dodge / J Attack / I Guard / U Parry / L Heal</span>
+    <span style="color:#6f7890">PC: WASD Move / Space Dodge / J Attack (hold=Heavy) / I Guard / U Parry / L Heal</span>
   </div>
   <div id="bossSelect"></div>
   <div id="bestLbl"></div>
@@ -247,6 +248,45 @@ function noiseBurst(dur, vol, filterFreq, delaySec) {
 function subThump(freq, dur, vol) {
   tone(freq, dur, 'sine', vol, Math.max(20, freq * 0.4));
 }
+// フィルターのカットオフを時間とともに掃引するノイズ。
+// 「太い帯域を素早く駆け抜けてスパッと止まる」質感（剣の風切り等）に使う
+function noiseSweep(dur, vol, freqFrom, freqTo, filterType, delaySec) {
+  if (!AC) return;
+  const t0 = AC.currentTime + (delaySec || 0);
+  const len = Math.max(1, Math.floor(AC.sampleRate * dur));
+  const buf = AC.createBuffer(1, len, AC.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1; // 減衰は下のgainエンベロープ側で付ける
+  const src = AC.createBufferSource(); src.buffer = buf;
+  const f = AC.createBiquadFilter();
+  f.type = filterType || 'bandpass';
+  f.Q.value = f.type === 'bandpass' ? 1.1 : 0.9;
+  f.frequency.setValueAtTime(freqFrom, t0);
+  f.frequency.exponentialRampToValueAtTime(Math.max(20, freqTo), t0 + dur);
+  const g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + dur * 0.18); // 立ち上がり
+  g.gain.setValueAtTime(vol, t0 + dur * 0.55);
+  g.gain.linearRampToValueAtTime(0.0001, t0 + dur); // スパッと止める（線形カットで急停止感）
+  src.connect(f).connect(g).connect(OUT || AC.destination);
+  src.start(t0); src.stop(t0 + dur + 0.02);
+}
+// 簡易リバーブ（外部音源ファイル不要。減衰ノイズを自前生成しインパルス応答として使う）
+let _reverbIR = null;
+function getReverb() {
+  if (!AC) return null;
+  if (!_reverbIR) {
+    const dur = 2.4, len = Math.floor(AC.sampleRate * dur);
+    _reverbIR = AC.createBuffer(2, len, AC.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = _reverbIR.getChannelData(ch);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+    }
+  }
+  const conv = AC.createConvolver();
+  conv.buffer = _reverbIR;
+  return conv;
+}
 const sfx = {
   hit() { // 斬撃: 低音の衝撃 + 金属質な擦過
     subThump(60, 0.22, 0.4);
@@ -268,9 +308,18 @@ const sfx = {
     noiseBurst(0.2, 0.26, 550);
     subThump(70, 0.14, 0.15);
   },
-  swing() { // 風切り: 下降スイープ
-    noiseBurst(0.16, 0.32, 900);
-    tone(320, 0.14, 'sawtooth', 0.1, 70);
+  swing() { // 風切り: 太い帯域を素早く駆け抜けてスパッと止まる「ブゥォッ」
+    noiseSweep(0.15, 0.36, 2200, 480, 'bandpass');
+    tone(240, 0.1, 'sawtooth', 0.08, 85);
+  },
+  heavySwing() { // 強攻撃の踏み込み: より低く太い「ブゥォッ」+踏みしめる低音
+    noiseSweep(0.22, 0.42, 1600, 300, 'bandpass');
+    tone(170, 0.14, 'sawtooth', 0.1, 48);
+    subThump(50, 0.24, 0.32);
+  },
+  lunge() { // 回避直後の踏み込み突き: 鋭く短い一撃
+    noiseBurst(0.1, 0.28, 1400);
+    tone(480, 0.09, 'triangle', 0.12, 240);
   },
   heal() {
     tone(520, 0.35, 'sine', 0.16, 780);
@@ -323,10 +372,27 @@ const sfx = {
     noiseBurst(0.25, 0.4, 2200);
     subThump(50, 0.45, 0.4);
   },
-  death() { // 崩れ落ちる低い轟き
-    tone(52, 2.2, 'sawtooth', 0.32, 18);
-    subThump(33, 2.4, 0.42);
-    noiseBurst(0.6, 0.3, 300, 0.1);
+  death() { // 崩れ落ちる衝撃 + 遠くの方へグォーンと引き込まれるように消えていく唸り
+    subThump(34, 0.9, 0.45); // 崩れ落ちる瞬間の近い衝撃
+    noiseBurst(0.5, 0.28, 260, 0.05);
+    if (AC) {
+      const t0 = AC.currentTime;
+      const o = AC.createOscillator(), g = AC.createGain(), f = AC.createBiquadFilter();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(60, t0);
+      o.frequency.exponentialRampToValueAtTime(15, t0 + 3.6); // 下降しながら
+      f.type = 'lowpass';
+      f.frequency.setValueAtTime(3400, t0);
+      f.frequency.exponentialRampToValueAtTime(160, t0 + 3.6); // だんだんこもる＝遠ざかる
+      g.gain.setValueAtTime(0.001, t0);
+      g.gain.exponentialRampToValueAtTime(0.32, t0 + 0.18); // 一瞬の「グォ」
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.8); // 「ーン…」と引き込まれて消える
+      o.connect(f).connect(g);
+      g.connect(OUT || AC.destination);
+      const rv = getReverb();
+      if (rv) { g.connect(rv); rv.connect(OUT || AC.destination); } // 遠くの空間で鳴っている質感
+      o.start(t0); o.stop(t0 + 4.0);
+    }
   },
   youDied() { // YOU DIED表示: 金属質の鐘鳴り + 不穏な短調の余韻（オリジナル合成）
     subThump(45, 2.8, 0.42);
@@ -343,11 +409,25 @@ const sfx = {
     tone(294, 4.2, 'sine', 0.06);            // (D4)
     noiseBurst(2.2, 0.08, 320, 0.3);         // 遠鳴りの尾
   },
-  win() {
-    tone(392, 0.5, 'sine', 0.18);
-    subThump(98, 1.2, 0.2);
-    setTimeout(() => tone(523, 0.6, 'sine', 0.18), 220);
-    setTimeout(() => tone(659, 1.4, 'sine', 0.18), 460);
+  win() { // 討伐完了: 低く重い和音がうねりながら、遠くの空間へ長く尾を引いて消える
+    subThump(65, 0.9, 0.3);
+    if (AC) {
+      const t0 = AC.currentTime;
+      const rv = getReverb();
+      [130.8, 196.0, 261.6].forEach((f, i) => { // C3-G3-C4（力強く、暗さを残す和音）
+        const o = AC.createOscillator(), g = AC.createGain();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(f * 0.985, t0); // わずかに低めからうねり上がる
+        o.frequency.exponentialRampToValueAtTime(f, t0 + 0.35);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(Math.max(0.05, 0.17 - i * 0.02), t0 + 0.4 + i * 0.05);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.4); // 遠ざかるように消える
+        o.connect(g);
+        g.connect(OUT || AC.destination);
+        if (rv) { g.connect(rv); rv.connect(OUT || AC.destination); }
+        o.start(t0); o.stop(t0 + 3.6);
+      });
+    }
   }
 };
 
@@ -469,12 +549,99 @@ if (gfxOk) {
   );
   wall.position.y = 1.7;
   scene.add(wall);
+
+  buildSkyBackdrop();
+  buildBattlefieldDressing();
+}
+
+// ===== 遠景の空（頂点カラーのグラデーション球+実ジオメトリの山影。テクスチャは使わない） =====
+// ※ CanvasTexture を大きな円柱に貼る方式は、ヘッドレス検証でUV/描画に不可解な矩形が
+//   出る現象があったため、pillar/rubbleと同じ「実ジオメトリを並べる」確実な方式に統一した
+function buildSkyBackdrop() {
+  const topColor = new THREE.Color(0x05060a), horizonColor = new THREE.Color(0x231d1e);
+  const skyGeo = new THREE.SphereGeometry(85, 24, 14, 0, TAU, 0, Math.PI * 0.56);
+  const posAttr = skyGeo.getAttribute('position');
+  const colors = new Float32Array(posAttr.count * 3);
+  const tmp = new THREE.Color();
+  for (let i = 0; i < posAttr.count; i++) {
+    const t = clamp(1 - posAttr.getY(i) / 85, 0, 1); // 0=真上(topColor) 〜 1=地平線(horizonColor)
+    tmp.copy(topColor).lerp(horizonColor, Math.pow(t, 1.6));
+    colors[i * 3] = tmp.r; colors[i * 3 + 1] = tmp.g; colors[i * 3 + 2] = tmp.b;
+  }
+  skyGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false }));
+  scene.add(sky);
+
+  // 遠景の山並み・崩れた塔（実ジオメトリ。霧で自然にフェードして奥行きを出す）
+  const mtnMat = new THREE.MeshBasicMaterial({ color: 0x11141f });
+  const towerMat = new THREE.MeshBasicMaterial({ color: 0x0c0e16 });
+  const N_MTN = 20;
+  for (let i = 0; i < N_MTN; i++) {
+    const a = (i / N_MTN) * TAU + (Math.random() - 0.5) * 0.25;
+    const r = 45 + Math.random() * 22;
+    const h = 7 + Math.random() * 18, rad = 5 + Math.random() * 7;
+    const mtn = new THREE.Mesh(new THREE.ConeGeometry(rad, h, 5), mtnMat);
+    mtn.position.set(Math.cos(a) * r, h * 0.5 - 1.5, Math.sin(a) * r);
+    mtn.rotation.y = Math.random() * TAU;
+    scene.add(mtn);
+    if (Math.random() < 0.3) { // 稀に崩れた塔を山の手前に添える
+      const th = 10 + Math.random() * 16, tr = 1 + Math.random() * 1.2;
+      const tower = new THREE.Mesh(new THREE.CylinderGeometry(tr * 0.7, tr, th, 6), towerMat);
+      const tr2 = r - 6 - Math.random() * 6;
+      tower.position.set(Math.cos(a) * tr2, th / 2, Math.sin(a) * tr2);
+      tower.rotation.z = (Math.random() - 0.5) * 0.15;
+      scene.add(tower);
+    }
+  }
+}
+
+// ===== アリーナ外周の残骸（崩れた石柱・旗・瓦礫を自動配置） =====
+function buildBattlefieldDressing() {
+  const pillarMat = new THREE.MeshStandardMaterial({ color: 0x2a2e3a, roughness: 0.92, metalness: 0.05 });
+  const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x23262f, roughness: 0.95, metalness: 0.05 });
+  const bannerMat = new THREE.MeshStandardMaterial({ color: 0x5a1f22, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
+
+  // カメラはプレイヤー(ARENA_R=14まで移動可)から更に4.7下がるため原点から最大18.7程度
+  // 離れうる。柱の内側半径をそれより外に取り、カメラのすぐ近くに来ないようにする
+  const N_PILLARS = 16;
+  for (let i = 0; i < N_PILLARS; i++) {
+    const a = (i / N_PILLARS) * TAU + (Math.random() - 0.5) * 0.3;
+    const r = 22 + Math.random() * 13;
+    const broken = Math.random() < 0.4;
+    const h = broken ? 1.4 + Math.random() * 2.4 : 4 + Math.random() * 3;
+    const rad = 0.4 + Math.random() * 0.3;
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(rad * 0.85, rad, h, 8), pillarMat);
+    pillar.position.set(Math.cos(a) * r, h / 2, Math.sin(a) * r);
+    pillar.rotation.y = Math.random() * TAU;
+    if (broken) pillar.rotation.z = (Math.random() - 0.5) * 0.35; // 崩れて傾いた柱
+    scene.add(pillar);
+
+    if (!broken && Math.random() < 0.35) { // 稀に旗を添える
+      const bh = 1.6;
+      const banner = new THREE.Mesh(new THREE.PlaneGeometry(0.9, bh, 1, 4), bannerMat);
+      banner.position.set(pillar.position.x, h - bh / 2 - 0.2, pillar.position.z);
+      banner.rotation.y = Math.atan2(pillar.position.x, pillar.position.z);
+      scene.add(banner);
+    }
+  }
+
+  const N_RUBBLE = 24;
+  for (let i = 0; i < N_RUBBLE; i++) {
+    const a = Math.random() * TAU;
+    const r = 20 + Math.random() * 17;
+    const s = 0.3 + Math.random() * 0.65;
+    const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), rubbleMat);
+    rock.position.set(Math.cos(a) * r, s * 0.4, Math.sin(a) * r);
+    rock.rotation.set(Math.random() * TAU, Math.random() * TAU, Math.random() * TAU);
+    scene.add(rock);
+  }
 }
 
 // ===== 入力 (仮想スティック + ボタン + キーボード) =====
 const input = { stickId: null, stickOx: 0, stickOy: 0, stickX: 0, stickY: 0, guardTouch: false };
-const actions = []; // 'attack' | 'roll' | 'heal' | 'parry'
+const actions = []; // 'attack' | 'heavyAttack' | 'roll' | 'heal' | 'parry'
 const keys = {};
+const ATK_TAP_MS = 200; // 攻撃ボタン/キーの保持時間しきい値（未満=通常攻撃、以上=強攻撃）
 
 function setupButton(id, action) {
   const el = document.getElementById(id);
@@ -488,9 +655,25 @@ function setupButton(id, action) {
   el.addEventListener('pointercancel', () => el.classList.remove('pressed'));
   el.addEventListener('pointerleave', () => el.classList.remove('pressed'));
 }
-setupButton('btnAttack', 'attack');
 setupButton('btnRoll', 'roll');
 setupButton('btnHeal', 'heal');
+
+// 攻撃ボタン: 短く離す=通常攻撃／ATK_TAP_MS以上押し続けて離す=強攻撃
+{
+  const aEl = document.getElementById('btnAttack');
+  let atkDownAt = 0;
+  aEl.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    audioInit();
+    aEl.classList.add('pressed');
+    atkDownAt = performance.now();
+  });
+  aEl.addEventListener('pointerup', () => {
+    aEl.classList.remove('pressed');
+    actions.push(performance.now() - atkDownAt >= ATK_TAP_MS ? 'heavyAttack' : 'attack');
+  });
+  ['pointercancel', 'pointerleave'].forEach(ev => aEl.addEventListener(ev, () => aEl.classList.remove('pressed')));
+}
 
 // ガード/パリイ統合ボタン:
 // 押した瞬間からガード（即応性を保つ）。0.18秒以内に離したらパリイに切り替える
@@ -541,16 +724,23 @@ function stickEnd(e) {
 cv.addEventListener('pointerup', stickEnd);
 cv.addEventListener('pointercancel', stickEnd);
 
+let keyAttackDownAt = 0;
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys[e.code] = true;
   audioInit();
   if (e.code === 'Space' || e.code === 'KeyK') { actions.push('roll'); e.preventDefault(); }
-  if (e.code === 'KeyJ' || e.code === 'Enter') actions.push('attack');
+  if (e.code === 'KeyJ' || e.code === 'Enter') keyAttackDownAt = performance.now();
   if (e.code === 'KeyL' || e.code === 'KeyH') actions.push('heal');
   if (e.code === 'KeyU' || e.code === 'KeyO') actions.push('parry');
 });
-window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+window.addEventListener('keyup', (e) => {
+  keys[e.code] = false;
+  // 攻撃キー: 短押し=通常攻撃／ATK_TAP_MS以上の押しっぱなし=強攻撃
+  if (e.code === 'KeyJ' || e.code === 'Enter') {
+    actions.push(performance.now() - keyAttackDownAt >= ATK_TAP_MS ? 'heavyAttack' : 'attack');
+  }
+});
 
 function readStick() {
   let x = input.stickX, y = input.stickY;
@@ -867,7 +1057,9 @@ const player = {
   rollDx: 0, rollDz: 1, iframe: false,
   estus: 3, walkPhase: 0, walkAmt: 0, facing: 0,
   deadT: 0, healDone: false, attackDone: false, guarding: false,
-  vx: 0, vz: 0 // 移動速度（落雷の偏差撃ちに使う）
+  vx: 0, vz: 0, // 移動速度（落雷の偏差撃ちに使う）
+  lungeBuffered: false, // 回避中に攻撃が押されたか（回避終了時にローリング攻撃へ派生）
+  lungeWindowT: 0 // 回避開始からの残り猶予（この間は回避終了後でも攻撃入力でローリング攻撃が出る）
 };
 
 const boss = {
@@ -930,19 +1122,33 @@ function bossStartAttack(name) {
   boss.leapFrom = null; boss.leapTo = null; boss.landed = false;
   boss.spinBase = null; boss.y = 0;
   boss.atkStamp = (boss.atkStamp || 0) + 1; // モデルアニメの再スタート検出用
+  if (DEBUG_LOG) {
+    atkLog.push(name);
+    if (atkLog.length > 12) atkLog.shift();
+    const el = document.getElementById('debugLogEl');
+    if (el) el.textContent = 'atkLog: ' + atkLog.join(', ');
+  }
 }
 
 function bossPickAttack() {
   const d = Math.hypot(player.x - boss.x, player.z - boss.z);
   const rule = bossDef.ai.find(r => d >= r.minDist) || bossDef.ai[bossDef.ai.length - 1];
-  let total = 0;
-  for (const k in rule.w) total += rule.w[k];
-  let r = Math.random() * total;
+  // 距離帯だけでなく「今の距離で実際に届くか(reach)」でも絞ってから抽選する。
+  // reach未設定の技は常に対象（無制限）。全滅した場合は距離帯の表全体にフォールバック
+  const pool = {};
   for (const k in rule.w) {
-    r -= rule.w[k];
+    const reach = bossDef.attacks[k].reach;
+    if (reach === undefined || d <= reach) pool[k] = rule.w[k];
+  }
+  const table = Object.keys(pool).length > 0 ? pool : rule.w;
+  let total = 0;
+  for (const k in table) total += table[k];
+  let r = Math.random() * total;
+  for (const k in table) {
+    r -= table[k];
     if (r <= 0) return k;
   }
-  return Object.keys(rule.w)[0];
+  return Object.keys(table)[0];
 }
 
 // 攻撃形状の中にプレイヤーがいるか（ボスのローカル座標で判定）
@@ -1100,6 +1306,7 @@ function updatePlayer(dt) {
   if (player.stRegenDelay <= 0 && player.state !== 'attack' && player.state !== 'roll') {
     player.st = Math.min(STAMINA_MAX, player.st + (player.guarding ? 9 : 34) * dt);
   }
+  if (player.lungeWindowT > 0) player.lungeWindowT -= dt;
 
   while (actions.length) {
     const a = actions.shift();
@@ -1109,6 +1316,8 @@ function updatePlayer(dt) {
       player.state = 'roll'; player.stateT = 0;
       player.st = Math.max(0, player.st - 26);
       player.stRegenDelay = 0.5;
+      player.lungeBuffered = false;
+      player.lungeWindowT = 0.75; // 回避開始から0.75秒間、攻撃入力でローリング攻撃に化ける
       const s2 = readStick();
       if (s2.active) {
         player.rollDx = right.x * s2.x - fwd.x * s2.y;
@@ -1119,12 +1328,30 @@ function updatePlayer(dt) {
       const rl = Math.hypot(player.rollDx, player.rollDz) || 1;
       player.rollDx /= rl; player.rollDz /= rl;
       sfx.roll();
+    } else if ((a === 'attack' || a === 'heavyAttack') && player.state === 'roll') {
+      // 回避中に攻撃が押された→回避終了時にローリング攻撃(踏み込み突き)へ派生させる
+      player.lungeBuffered = true;
+    } else if ((a === 'attack' || a === 'heavyAttack') && canAct && player.lungeWindowT > 0 && player.st > 0) {
+      // 回避終了直後の猶予時間内（タップが少し遅れた場合）に攻撃入力→即座にローリング攻撃を発動
+      player.state = 'attackLunge'; player.stateT = 0; player.attackDone = false;
+      player.st = Math.max(0, player.st - 15);
+      player.stRegenDelay = 0.5;
+      player.lungeWindowT = 0;
+      sfx.lunge();
+      player.x += fwd.x * 0.9; player.z += fwd.z * 0.9;
     } else if (a === 'attack' && canAct && player.st > 0) {
       player.state = 'attack'; player.stateT = 0; player.attackDone = false;
       player.st = Math.max(0, player.st - 17);
       player.stRegenDelay = 0.55;
       sfx.swing();
       player.x += fwd.x * 0.55; player.z += fwd.z * 0.55;
+    } else if (a === 'heavyAttack' && canAct && player.st > 0) {
+      // 強攻撃: 通常の約2倍のダメージ・体幹削り。長い硬直とスタミナ消費が代償
+      player.state = 'attackHeavy'; player.stateT = 0; player.attackDone = false;
+      player.st = Math.max(0, player.st - 30);
+      player.stRegenDelay = 0.8;
+      sfx.heavySwing();
+      player.x += fwd.x * 0.7; player.z += fwd.z * 0.7;
     } else if (a === 'parry' && canAct && player.st > 0) {
       player.state = 'parry'; player.stateT = 0;
       player.guarding = false;
@@ -1154,7 +1381,31 @@ function updatePlayer(dt) {
     speed = 7.6;
     mvx = player.rollDx; mvz = player.rollDz;
     player.iframe = player.stateT > 0.03 && player.stateT < 0.34;
-    if (player.stateT >= RD) { player.state = 'idle'; player.stateT = 0; }
+    if (player.stateT >= RD) {
+      if (player.lungeBuffered && player.st > 0) {
+        // 回避中に攻撃入力があった→踏み込み突きへ派生（通常攻撃よりリーチが長い）
+        player.state = 'attackLunge'; player.stateT = 0; player.attackDone = false;
+        player.st = Math.max(0, player.st - 15);
+        player.stRegenDelay = 0.5;
+        sfx.lunge();
+        player.x += fwd.x * 0.9; player.z += fwd.z * 0.9;
+      } else {
+        player.state = 'idle'; player.stateT = 0;
+      }
+      player.lungeBuffered = false;
+    }
+  } else if (player.state === 'attackLunge') {
+    // 回避直後の踏み込み突き: 素早く発生し、移動の勢いでリーチも通常より長い
+    if (!player.attackDone && player.stateT >= 0.16) {
+      player.attackDone = true;
+      const distC = Math.hypot(boss.x - player.x, boss.z - player.z);
+      if (distC < 3.4 && boss.state !== 'dead' && boss.y < 1.2) {
+        damageBoss(34, false);
+        game.freeze = Math.max(game.freeze, 0.06);
+        cam.shake = Math.max(cam.shake, 0.2);
+      }
+    }
+    if (player.stateT >= 0.5) { player.state = 'idle'; player.stateT = 0; }
   } else if (player.state === 'attack') {
     // 振りの重さに合わせ、命中0.24秒・全体0.58秒（モーションと同期）
     if (!player.attackDone && player.stateT >= 0.24) {
@@ -1165,6 +1416,26 @@ function updatePlayer(dt) {
       }
     }
     if (player.stateT >= 0.58) { player.state = 'idle'; player.stateT = 0; }
+  } else if (player.state === 'attackHeavy') {
+    // 大振りのぶん命中判定・全体時間・リーチとも通常攻撃より長め
+    if (!player.attackDone && player.stateT >= 0.42) {
+      player.attackDone = true;
+      const distC = Math.hypot(boss.x - player.x, boss.z - player.z);
+      if (distC < 3.4 && boss.state !== 'dead' && boss.y < 1.2) {
+        damageBoss(52, true);
+        game.freeze = Math.max(game.freeze, 0.09);
+        cam.shake = Math.max(cam.shake, 0.3);
+        // 通常攻撃より体幹への追加ダメージ（damageBoss本体の加算に上乗せ）
+        if (boss.state !== 'stagger' && boss.state !== 'dead') {
+          boss.posture = Math.min(POSTURE_MAX, boss.posture + 6);
+          if (boss.posture >= POSTURE_MAX) {
+            boss.state = 'stagger'; boss.stateT = 0; boss.atk = null; boss.y = 0;
+            sfx.stagger();
+          }
+        }
+      }
+    }
+    if (player.stateT >= 0.95) { player.state = 'idle'; player.stateT = 0; }
   } else if (player.state === 'heal') {
     if (!player.healDone && player.stateT >= 0.62) {
       player.healDone = true;
@@ -2010,6 +2281,14 @@ function updatePlayerModel(dt) {
     if (restart) A.altSwing = !A.altSwing;
     const clip = A.altSwing && A.clips['Attack2'] ? 'Attack2' : PLAYER_CLIPS.attack;
     A.play(clip, { once: true, rate: 2.0, startFrac: 0.22, fade: 0.05, force: restart });
+  } else if (player.state === 'attackHeavy') {
+    // 専用モーション('AttackHeavy')が用意され次第、データを足すだけで自動的にそちらへ切り替わる。
+    // 未用意の間は通常攻撃クリップをスローで再生し「大振り」を表現するプレースホルダ
+    const hasDedicated = !!A.clips['AttackHeavy'];
+    const clip = hasDedicated ? 'AttackHeavy' : PLAYER_CLIPS.attack;
+    A.play(clip, { once: true, rate: hasDedicated ? 2.0 : 1.05, startFrac: 0.05, fade: 0.08, force: restart });
+  } else if (player.state === 'attackLunge') {
+    A.play('Lunge', { once: true, rate: 1.8, startFrac: 0.08, fade: 0.05, force: restart });
   } else if (player.state === 'parry') {
     A.play(PLAYER_CLIPS.parry, { once: true, rate: 1.6, startFrac: 0.05, fade: 0.06, force: restart });
   } else if (player.state === 'heal') {
@@ -2044,6 +2323,12 @@ function updatePlayerModel(dt) {
   // 攻撃の剣閃
   if (player.state === 'attack' && player.stateT > 0.13 && player.stateT < 0.3) {
     actorTrail(A, 0.16, 0.75, 0.92, 1);
+  }
+  if (player.state === 'attackHeavy' && player.stateT > 0.3 && player.stateT < 0.52) {
+    actorTrail(A, 0.2, 1, 0.85, 0.5); // 強攻撃は橙色の太い軌跡で差別化
+  }
+  if (player.state === 'attackLunge' && player.stateT > 0.08 && player.stateT < 0.22) {
+    actorTrail(A, 0.14, 0.8, 1, 0.9); // ローリング攻撃は青緑がかった軌跡で差別化
   }
   if (player.state === 'heal' && Math.random() < 0.5) {
     spawnSparks({ x: player.x, y: 0.6 + Math.random(), z: player.z }, 1, 1, 0.84, 0.42);
@@ -2410,6 +2695,30 @@ showTitle();
 requestAnimationFrame(frame);
 // 動作確認用: ?auto を付けると戦闘を自動開始する
 if (location.search.indexOf('auto') >= 0) startBattle();
+// 動作確認用: ?debugHeavy を付けると1秒後にプレイヤーが強攻撃を発動する
+if (location.search.indexOf('debugHeavy') >= 0) setTimeout(() => actions.push('heavyAttack'), 1000);
+// 動作確認用: ?debugLunge を付けると1秒後に回避→回避が終わった後(0.6秒後)に攻撃を入れて
+// 「猶予期間中の遅れタップ」経路のローリング攻撃を検証する（?debugLunge=mid なら回避中に検証）
+if (location.search.indexOf('debugLunge') >= 0) {
+  const midTiming = /debugLunge=mid/.test(location.search);
+  setTimeout(() => actions.push('roll'), 1000);
+  setTimeout(() => actions.push('attack'), midTiming ? 1150 : 1600);
+}
+// 動作確認用: ?debugLog を付けるとボスが選んだ攻撃名を画面左上に直近12件表示する
+// （AIが実戦でどの技を選んでいるか実測するためのツール）
+const DEBUG_LOG = location.search.indexOf('debugLog') >= 0;
+const atkLog = [];
+if (DEBUG_LOG) {
+  const el = document.createElement('div');
+  el.id = 'debugLogEl';
+  el.style.cssText = 'position:fixed;left:4px;top:4px;z-index:999;color:#0f0;background:rgba(0,0,0,.7);font:12px monospace;padding:4px;max-width:96vw;';
+  document.body.appendChild(el);
+}
+// 動作確認用: ?debugAtk=攻撃名 で指定したボスの攻撃を即座に発動する（新技の検証に使う）
+{
+  const da = /debugAtk=(\w+)/.exec(location.search);
+  if (da) setTimeout(() => { if (bossDef.attacks[da[1]]) bossStartAttack(da[1]); }, 300);
+}
 </script>
 </body>
 </html>

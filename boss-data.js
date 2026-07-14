@@ -26,6 +26,14 @@
    ■ attacks: 攻撃ごとの定義
      dur     : 全体時間（秒）
      dmg     : ダメージ
+     reach   : この技が実際に届く最大距離。bossPickAttack()が「今の距離で届く技」だけに
+               絞ってから抽選するために使う（★距離帯(ai.minDist)と実際のリーチが
+               ズレると「遠くから空振りの近接技を選ぶ」「本来届くはずが短すぎて届かない」
+               という不具合になるので、技を追加/調整したら必ず設定・見直すこと★）
+               目安の算出式:
+                 静止型（moveなし）: shapeのr（sector）または len（rect）
+                 突進型（move指定あり）: shapeのr/len + move×(t1-t0)
+                 leap/strikesのみ（跳躍・遠隔攻撃）: 省略可（無制限として扱われる）
      teleEnd : 予備動作の終了時刻（ここまで地面に赤い予告を表示）
      windows : 判定時間帯 [{t0, t1, shape, move?, dmg?}]
                shape = {type:'rect', w, len} または {type:'sector', r, inner, half}
@@ -40,6 +48,19 @@
                t の時点の対象位置（at: 'player' | 'boss'）をロックし、
                delay 秒間予告円を出してから半径 r に落雷（パリイ不可・ガード可）
                dmg: 0 なら演出のみ（着地の雷爆発など）
+
+     ★重要な公平性ルール★
+     地面の赤い予告表示は windows[0].shape だけが使われる（teleEnd までの間、
+     ずっとそれ1つが表示され続ける）。windows[1]以降を追加するときは、
+     必ず windows[0] の形状が「実際に当たりうる範囲の和集合」を覆っている
+     ようにすること。そうしないと「予告の外にいたのに当たった」という
+     不公平なヒットが発生する。
+       OK例: 複数windowsが全く同じ shape（威力や時間だけ違う）→ spin, bolt系
+       OK例: windows[0]が最大到達範囲、他は全てその内側の部分集合
+       NG例: windows[0]が小さい範囲で、windows[1]がそれよりずっと大きい範囲
+     「広がる衝撃波」を表現したい場合も、上記の理由から実装上は
+     「同じ最大範囲に複数回ヒット判定が来る」方式にする
+       （例: groundSlam, stormRing を参照）。
    ■ style の追加オプション
      spear:true  = 武器を長槍にする / storm:true = 第2形態で武器が雷を纏う
      bodyColor / armorColor = 体・鎧の色（フォールバック用カプセル体, '#rrggbb'）
@@ -65,7 +86,7 @@ const BOSS_DATA = [
   {
     id: 'gram',
     name: 'Gram, Knight of Bones', // 骸ノ騎士 グラム
-    hp: 7,
+    hp: 150,
     postureMax: 100,
     scale: 2.7,
     swordLen: 2.6,
@@ -86,13 +107,19 @@ const BOSS_DATA = [
     },
     style: { horns: true, pauldrons: true, eye: '#ff7040', eyePhase2: '#ff3820', tint: '#8a8f9e' },
     ai: [
-      { minDist: 7,   w: { charge: 0.35, leap: 0.45, sweep: 0.2 } },
-      { minDist: 4.5, w: { charge: 0.3, leap: 0.2, overhead: 0.25, sweep: 0.25 } },
-      { minDist: 0,   w: { overhead: 0.3, sweep: 0.3, spin: 0.25, charge: 0.15 } }
+      // slide追加時は既存bolt3の教訓（新技を均等に割ると看板技が薄まる）を踏まえ、
+      // 最も重みの大きいleap/groundSlamから優先的に削って追加した
+      { minDist: 7,   w: { charge: 0.28, leap: 0.32, sweep: 0.15, groundSlam: 0.13, slide: 0.12 } },
+      { minDist: 4.5, w: { charge: 0.22, leap: 0.15, overhead: 0.17, sweep: 0.17, groundSlam: 0.16, slide: 0.13 } },
+      // 密着帯にもslideを少量だけ混ぜる（本来は距離を詰める技だが、密着プレイ主体の
+      // プレイヤーだと中距離帯にほぼ滞在せず出現機会自体が無くなってしまうため。
+      // leap等はゲーム開始時からの意図的な仕様として密着帯には残さない）
+      { minDist: 0,   w: { overhead: 0.23, sweep: 0.15, spin: 0.18, charge: 0.10, crossCut: 0.24, slide: 0.10 } }
     ],
     attacks: {
       overhead: { // 振り下ろし
         clip: 'Slash',
+        reach: 4.4,
         dur: 2.1, dmg: 42, teleEnd: 0.86,
         windows: [{ t0: 0.87, t1: 1.02, shape: { type: 'rect', w: 2.4, len: 4.4 } }],
         frames: [
@@ -105,7 +132,8 @@ const BOSS_DATA = [
         ]
       },
       sweep: { // 横薙ぎ
-        clip: 'Swipe',
+        clip: 'Slash2', // 専用モーション導入前はoverheadと同じ見た目(Swipe=Slash)だったため差別化
+        reach: 4.8,
         dur: 2.0, dmg: 30, teleEnd: 0.78,
         windows: [{ t0: 0.79, t1: 1.04, shape: { type: 'sector', r: 4.8, inner: 0.7, half: 1.75 } }],
         frames: [
@@ -119,6 +147,7 @@ const BOSS_DATA = [
       },
       charge: { // 突進突き
         clip: 'Punch',
+        reach: 8.5, // len3.2 + move13×0.44s ≒ 8.9（安全側でengageDistに合わせる）
         dur: 2.3, dmg: 34, teleEnd: 0.7,
         windows: [{ t0: 0.71, t1: 1.15, shape: { type: 'rect', w: 2.2, len: 3.2 }, move: 13 }],
         frames: [
@@ -127,6 +156,22 @@ const BOSS_DATA = [
           [0.7,  { lean: 0.3, sp: 0.05, sy: 0.8, rp: 0.8, ry: 0.2, re: 0.12 }],
           [0.8,  { lean: 0.55, sp: 0, sy: 0, rp: 1.55, ry: 0.05, re: 0.05, crouch: 0.1 }],
           [1.25, { lean: 0.5, sp: 0, sy: 0.05, rp: 1.5, re: 0.08 }],
+          [2.3,  {}]
+        ]
+      },
+      slide: { // 滑り込み突進斬り（低い姿勢で高速に距離を詰める）
+        // 当初move:17・窓0.35秒だったが、密着から届く距離帯まで含め遠距離選出時に
+        // 届かないケースがあったため、move強化+窓を延長して実効リーチを拡大した
+        clip: 'Slide',
+        reach: 9, // len3.4 + move22×0.45s ≒ 13.3（余裕を持たせつつengageDist超をカバー）
+        dur: 2.3, dmg: 30, teleEnd: 0.58,
+        windows: [{ t0: 0.60, t1: 1.05, shape: { type: 'rect', w: 2.0, len: 3.4 }, move: 22 }],
+        frames: [
+          [0,    {}],
+          [0.35, { crouch: 0.5, lean: 0.35, rp: 0.7, ry: 0.15, re: 0.2, sp: 0.1, sy: 0.3 }],
+          [0.58, { crouch: 0.7, lean: 0.5, rp: 0.9, ry: 0.1, re: 0.1, sp: 0.05, sy: 0.2 }],
+          [1.05, { crouch: 0.55, lean: 0.35, rp: 1.3, re: 0.15, sp: -0.6, sy: 0.1 }],
+          [1.6,  { crouch: 0.2, lean: 0.15, rp: 0.8, re: 0.2 }],
           [2.3,  {}]
         ]
       },
@@ -145,8 +190,43 @@ const BOSS_DATA = [
           [2.7,  {}]
         ]
       },
+      groundSlam: { // 地面を踏み砕く全周衝撃波（同じ範囲に2連続ヒット。テレグラフ円=最大到達範囲）
+        clip: 'Punch',
+        reach: 4.4,
+        dur: 2.3, teleEnd: 0.9,
+        windows: [
+          { t0: 0.92, t1: 1.04, dmg: 24, shape: { type: 'sector', r: 4.4, inner: 0, half: 3.15 } },
+          { t0: 1.10, t1: 1.22, dmg: 18, shape: { type: 'sector', r: 4.4, inner: 0, half: 3.15 } }
+        ],
+        frames: [
+          [0,    {}],
+          [0.55, { lean: 0.3, crouch: 0.25, rp: 0.9, ry: 0.15, re: 0.2 }],
+          [0.9,  { lean: 0.4, crouch: 0.45, rp: 1.6, ry: 0.1, re: 0.1 }],
+          [1.05, { lean: 0.55, crouch: 0.55, rp: 1.7, ry: 0.05, re: 0.05 }],
+          [1.5,  { lean: 0.4, crouch: 0.3, rp: 1.0, re: 0.15 }],
+          [2.3,  {}]
+        ]
+      },
+      crossCut: { // 素早い二連斬り（同じ範囲に間髪入れず2連続ヒットする1-2combo）
+        clip: 'Slash',
+        reach: 3.6,
+        dur: 1.7, teleEnd: 0.55,
+        windows: [
+          { t0: 0.57, t1: 0.68, dmg: 14, shape: { type: 'sector', r: 3.6, inner: 0.6, half: 1.5 } },
+          { t0: 0.78, t1: 0.90, dmg: 16, shape: { type: 'sector', r: 3.6, inner: 0.6, half: 1.5 } }
+        ],
+        frames: [
+          [0,    {}],
+          [0.4,  { twist: -0.7, sy: -1.2, sp: 0.15, rp: 0.8, ry: 0.7, re: 0.3 }],
+          [0.55, { twist: -0.8, sy: -1.4, sp: 0.12, rp: 0.9, ry: 0.8, re: 0.25 }],
+          [0.75, { twist: 0.75, sy: 1.2, sp: 0.05, rp: 0.85, ry: 0.7, re: 0.28, lean: 0.1 }],
+          [1.0,  { twist: 0.4, sy: 0.8, sp: -0.1, rp: 0.6 }],
+          [1.7,  {}]
+        ]
+      },
       spin: { // 回転斬り（2回転しながら前進する全周攻撃）
         clip: 'Spin',
+        reach: 6.0, // r4.0 + move2.0×1.0s
         dur: 2.6, dmg: 24, teleEnd: 0.75,
         spin: { t0: 0.75, t1: 1.75, turns: 2, move: 2.0 },
         windows: [
@@ -173,7 +253,7 @@ const BOSS_DATA = [
   {
     id: 'volga',
     name: 'Volga, King of Thunder', // 雷ノ王 ヴォルガ
-    hp: 950,
+    hp: 300,
     postureMax: 110,
     scale: 2.9,
     swordLen: 3.4,
@@ -200,14 +280,19 @@ const BOSS_DATA = [
       tint: '#9296ac'
     },
     ai: [
-      { minDist: 9, w: { thrust: 0.45, skyfall: 0.35, bolt3: 0.2 } },
-      { minDist: 5, w: { thrust: 0.3, skyfall: 0.2, bolt3: 0.2, sweep: 0.3 } },
-      // 密着時は落雷詠唱(bolt3)を使わない（棒立ち詠唱が殴り放題になるため）
-      { minDist: 0, w: { sweep: 0.45, nova: 0.35, thrust: 0.2 } }
+      // bolt3は看板技なので重みを元の水準(20%)に維持。stormRing/bolt5は
+      // それを削らない範囲で追加した（過去にbolt3が15%まで薄まり体感で
+      // 「出なくなった」と感じられた反省を踏まえた配分）
+      { minDist: 9, w: { thrust: 0.28, skyfall: 0.20, bolt3: 0.20, bolt5: 0.10, stormRing: 0.22 } },
+      { minDist: 5, w: { thrust: 0.20, skyfall: 0.15, bolt3: 0.20, sweep: 0.23, stormRing: 0.22 } },
+      // 密着時は落雷詠唱(bolt3/bolt5)を使わない（棒立ち詠唱が殴り放題になるため）。
+      // stormRingは自分中心の攻撃なので近距離でも使用可
+      { minDist: 0, w: { sweep: 0.30, nova: 0.25, thrust: 0.15, stormRing: 0.30 } }
     ],
     attacks: {
       thrust: { // 長距離の突進突き
         clip: 'Thrust',
+        reach: 11, // len4.2 + move19×0.48s ≒ 13.3（安全側でengageDistに合わせる）
         dur: 2.6, dmg: 40, teleEnd: 0.7,
         windows: [{ t0: 0.72, t1: 1.2, shape: { type: 'rect', w: 2.0, len: 4.2 }, move: 19 }],
         frames: [
@@ -251,8 +336,42 @@ const BOSS_DATA = [
           [3.4,  {}]
         ]
       },
+      stormRing: { // 落雷の輪。至近距離と遠距離は安全、中間の輪だけが危険（逆転の間合い管理）
+        clip: 'Cast',
+        reach: 5.6, // 自分中心の輪なのでr=5.6がそのまま最大到達距離
+        dur: 2.4, teleEnd: 0.95,
+        windows: [{ t0: 0.97, t1: 1.15, dmg: 30, shape: { type: 'sector', r: 5.6, inner: 1.6, half: 3.15 } }],
+        strikes: [{ t: 0.95, at: 'boss', delay: 0, r: 0, dmg: 0 }],
+        frames: [
+          [0,    {}],
+          [0.6,  { crouch: 0.4, lean: 0.2, rp: 0.7, lp: 0.7, sp: -0.7, sy: 0.35 }],
+          [0.95, { crouch: 0.5, lean: 0.3, rp: 0.5, lp: 0.5, sp: -0.9, sy: 0.4 }],
+          [1.15, { crouch: 0.1, lean: -0.15, rp: 1.4, ry: 1.2, lp: 1.4, ly: 1.2, sp: 0.55, sy: 0.85 }],
+          [1.8,  { rp: 1.15, ry: 0.95, lp: 1.15, ly: 0.95, lean: -0.05 }],
+          [2.4,  {}]
+        ]
+      },
+      bolt5: { // 5連続落雷（三連落雷の強化版。第2形態のdmgMult/speedMultで真価を発揮）
+        clip: 'Cast2', // bolt3と同じCastだと見分けが付きにくいため専用の詠唱モーションに
+        dur: 3.6, teleEnd: 0.5,
+        windows: [],
+        strikes: [
+          { t: 0.5,  at: 'player', delay: 0.75, r: 2.2, dmg: 22 },
+          { t: 0.95, at: 'player', delay: 0.75, r: 2.2, dmg: 22 },
+          { t: 1.4,  at: 'player', delay: 0.75, r: 2.2, dmg: 22 },
+          { t: 1.85, at: 'player', delay: 0.75, r: 2.2, dmg: 22 },
+          { t: 2.3,  at: 'player', delay: 0.75, r: 2.2, dmg: 22 }
+        ],
+        frames: [
+          [0,    {}],
+          [0.45, { rp: 2.9, sp: 2.2, sy: 0.1, lean: -0.15, lp: 0.8 }],
+          [3.0,  { rp: 2.85, sp: 2.15, sy: 0.12, lean: -0.12, lp: 0.75 }],
+          [3.6,  {}]
+        ]
+      },
       nova: { // 自分を中心とした雷光の放射
         clip: 'Punch',
+        reach: 4.0,
         dur: 2.5, dmg: 36, teleEnd: 0.95,
         windows: [{ t0: 0.97, t1: 1.12, shape: { type: 'sector', r: 4.0, inner: 0, half: 3.15 } }],
         strikes: [{ t: 0.95, at: 'boss', delay: 0, r: 0, dmg: 0 }],
@@ -267,6 +386,7 @@ const BOSS_DATA = [
       },
       sweep: { // 薙ぎ払い（リーチ長め）
         clip: 'Swipe',
+        reach: 5.4,
         dur: 2.1, dmg: 32, teleEnd: 0.7,
         windows: [{ t0: 0.72, t1: 0.98, shape: { type: 'sector', r: 5.4, inner: 0.8, half: 1.7 } }],
         frames: [
