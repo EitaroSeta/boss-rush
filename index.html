@@ -1042,6 +1042,24 @@ const STAMINA_MAX = 100;
 let BOSS_HP_MAX = 1;   // boss-data.js 読み込み後に設定される
 let POSTURE_MAX = 100;
 
+// 致命の一撃(boss.state==='executed')の4段タイミング: 刺す(静止)→蹴り飛ばす(滞空)→倒れ込む→起き上がる
+const EXEC_STAB_T = 0.05; // 命中(=蹴りの動き出し)からほぼ即座に吹っ飛び始める
+const EXEC_AIR_T = 0.9;   // 吹っ飛ぶ速度（大きいほどゆっくり飛ぶ）
+const EXEC_AIR_HEIGHT = 1.6;
+const EXEC_DOWN_T = 1.0;
+const EXEC_GETUP_T = 2.8;
+const EXEC_KNOCK_DIST = 2.2; // 吹っ飛ぶ距離
+const EXEC_FALL_ANGLE = 1.5; // 倒れ込み時の前傾角度(ラジアン)
+
+// プレイヤー側「ゆっくり刺す→蹴りへ乗り換える→蹴る」2段モーションのタイミング
+// （刺突を最後まで再生しきる前に、6割ほど進んだところで蹴りへクロスフェードして繋ぐ）
+const CRIT_STAB_DUR = 1.4;     // 刺突モーション自体の再生時間（最後まで再生した場合の長さ）
+const CRIT_STAB_CLIP_T = 0.84; // 刺突フェーズの長さ（この時点でまだ刺突再生中でも蹴りへ乗り換える）
+const CRIT_KICK_DUR = 1.3;     // 蹴りモーション自体の再生時間（ゆっくりめにして刺突と繋がりを揃える）
+const CRIT_KICK_FADE = 0.45;   // 刺突→蹴りのクロスフェード時間（長めにして滑らかに繋げる）
+const CRIT_HIT_T = 1.2;        // 蹴りの命中（=致命の一撃発動）タイミング。脚が伸びていく途中で発動させる
+const CRIT_TOTAL_T = 1.9;      // 致命の一撃モーション全体の長さ
+
 // ===== ゲーム状態 =====
 const game = {
   scene: 'title', // title | battle | dead | win
@@ -1065,7 +1083,7 @@ const player = {
 const boss = {
   x: 0, z: 4, y: 0, facing: Math.PI,
   leapFrom: null, leapTo: null, landed: false, spinBase: null,
-  hp: BOSS_HP_MAX, posture: 0, phase: 1,
+  hp: BOSS_HP_MAX, posture: POSTURE_MAX, phase: 1,
   state: 'intro',
   stateT: 0, atk: null, atkT: 0, cooldown: 1.2,
   hitFlags: {}, queue: [],
@@ -1185,14 +1203,14 @@ function knockbackPlayer(dist) {
 function damagePlayer(dmg, noParry) {
   if (player.iframe || player.state === 'dead' || game.scene !== 'battle') return;
 
-  // パリイ成功: ダメージ無効 + ボスの体幹を大きく削る（落雷などはパリイ不可）
+  // パリイ成功: ダメージ無効 + ボスの体幹ゲージを問答無用で全損させて即staggerさせる（落雷などはパリイ不可）
   if (!noParry && player.state === 'parry' && player.stateT >= 0.04 && player.stateT <= 0.30) {
     sfx.parry();
     game.freeze = 0.12;
     cam.shake = Math.max(cam.shake, 0.3);
     spawnSparks({ x: player.x, y: 1.3, z: player.z }, 14, 1, 0.91, 0.63);
-    boss.posture = Math.min(POSTURE_MAX, boss.posture + 45);
-    if (boss.posture >= POSTURE_MAX && boss.state !== 'stagger') {
+    boss.posture = 0;
+    if (boss.state !== 'stagger') {
       boss.state = 'stagger'; boss.stateT = 0; boss.atk = null; boss.y = 0;
       sfx.stagger();
     }
@@ -1238,7 +1256,7 @@ function damageBoss(dmg, isCrit) {
   if (boss.state === 'dead') return;
   const mult = boss.state === 'stagger' ? 1.8 : 1;
   boss.hp -= dmg * mult;
-  boss.posture = Math.min(POSTURE_MAX, boss.posture + (boss.state === 'stagger' ? 0 : 9));
+  boss.posture = Math.max(0, boss.posture - (boss.state === 'stagger' ? 0 : 9));
   game.freeze = 0.055;
   cam.shake = Math.max(cam.shake, 0.15);
   if (isCrit || boss.state === 'stagger') sfx.crit(); else sfx.hit();
@@ -1249,10 +1267,47 @@ function damageBoss(dmg, isCrit) {
     sfx.roar();
     cam.shake = 0.5;
   }
-  if (boss.posture >= POSTURE_MAX && boss.state !== 'stagger') {
+  if (boss.posture <= 0 && boss.state !== 'stagger') {
     boss.state = 'stagger'; boss.stateT = 0; boss.atk = null; boss.y = 0;
     sfx.stagger();
   }
+  if (boss.hp <= 0) {
+    boss.hp = 0;
+    bossDie();
+  }
+}
+
+// 致命の一撃: staggerしたボスへの専用大ダメージ処理。通常のスタッガー倍率(damageBoss)は使わず
+// ボス最大HP割合の固定ダメージを与え、staggerを即座に打ち切り、蹴り飛ばして倒れ込ませる
+// （吹っ飛びの軌道は既存のleap攻撃と同じ放物線補間。updateBossのboss.state==='executed'が処理する）
+function damageBossExecute() {
+  if (boss.state === 'dead') return;
+  const dmg = Math.round(BOSS_HP_MAX * 0.12);
+  boss.hp -= dmg;
+  game.freeze = 0.16;
+  game.slow = 0.4;
+  cam.shake = Math.max(cam.shake, 0.5);
+  sfx.crit();
+  spawnSparks({ x: boss.x, y: 2.2, z: boss.z }, 16, 1, 0.91, 0.63);
+
+  if (boss.hp <= BOSS_HP_MAX * bossDef.phase2.hpRatio && boss.phase === 1 && boss.hp > 0) {
+    boss.phase = 2;
+    sfx.roar();
+    cam.shake = 0.5;
+  }
+
+  // プレイヤーから見て奥方向へ蹴り飛ばす（アリーナ外に出ないようクランプ）
+  const kdx0 = boss.x - player.x, kdz0 = boss.z - player.z;
+  const klen = Math.hypot(kdx0, kdz0) || 1;
+  let tx = boss.x + (kdx0 / klen) * EXEC_KNOCK_DIST;
+  let tz = boss.z + (kdz0 / klen) * EXEC_KNOCK_DIST;
+  const tdd = Math.hypot(tx, tz);
+  if (tdd > ARENA_R) { tx *= ARENA_R / tdd; tz *= ARENA_R / tdd; }
+  boss.leapFrom = { x: boss.x, z: boss.z };
+  boss.leapTo = { x: tx, z: tz };
+  boss.landed = false;
+  boss.posture = POSTURE_MAX;
+  boss.state = 'executed'; boss.stateT = 0;
   if (boss.hp <= 0) {
     boss.hp = 0;
     bossDie();
@@ -1339,6 +1394,16 @@ function updatePlayer(dt) {
       player.lungeWindowT = 0;
       sfx.lunge();
       player.x += fwd.x * 0.9; player.z += fwd.z * 0.9;
+    } else if ((a === 'attack' || a === 'heavyAttack') && canAct && player.st > 0 && boss.state === 'stagger') {
+      // 致命の一撃: staggerしたボスへの攻撃は専用の演出・大ダメージに差し替える
+      player.state = 'attackCritical'; player.stateT = 0; player.attackDone = false;
+      player.st = Math.max(0, player.st - 20);
+      player.stRegenDelay = 0.8;
+      sfx.heavySwing();
+      player.x += fwd.x * 0.6; player.z += fwd.z * 0.6;
+      // 演出時間が伸びても発動後にstaggerが自然回復で先に解けないよう、
+      // 発動した瞬間にstaggerの残り猶予をリセットする
+      boss.stateT = 0;
     } else if (a === 'attack' && canAct && player.st > 0) {
       player.state = 'attack'; player.stateT = 0; player.attackDone = false;
       player.st = Math.max(0, player.st - 17);
@@ -1425,10 +1490,10 @@ function updatePlayer(dt) {
         damageBoss(52, true);
         game.freeze = Math.max(game.freeze, 0.09);
         cam.shake = Math.max(cam.shake, 0.3);
-        // 通常攻撃より体幹への追加ダメージ（damageBoss本体の加算に上乗せ）
+        // 通常攻撃より体幹への追加ダメージ（damageBoss本体の減算に上乗せ）
         if (boss.state !== 'stagger' && boss.state !== 'dead') {
-          boss.posture = Math.min(POSTURE_MAX, boss.posture + 6);
-          if (boss.posture >= POSTURE_MAX) {
+          boss.posture = Math.max(0, boss.posture - 6);
+          if (boss.posture <= 0) {
             boss.state = 'stagger'; boss.stateT = 0; boss.atk = null; boss.y = 0;
             sfx.stagger();
           }
@@ -1436,6 +1501,16 @@ function updatePlayer(dt) {
       }
     }
     if (player.stateT >= 0.95) { player.state = 'idle'; player.stateT = 0; }
+  } else if (player.state === 'attackCritical') {
+    // 致命の一撃: 刺す→蹴るの2段。命中(=蹴りの当たり)時点でstaggerが解けていないか再確認する
+    if (!player.attackDone && player.stateT >= CRIT_HIT_T) {
+      player.attackDone = true;
+      const distC = Math.hypot(boss.x - player.x, boss.z - player.z);
+      if (distC < 3.4 && boss.state === 'stagger') {
+        damageBossExecute();
+      }
+    }
+    if (player.stateT >= CRIT_TOTAL_T) { player.state = 'idle'; player.stateT = 0; }
   } else if (player.state === 'heal') {
     if (!player.healDone && player.stateT >= 0.62) {
       player.healDone = true;
@@ -1505,12 +1580,38 @@ function updateBoss(dt) {
     boss.walkAmt = Math.max(0, boss.walkAmt - dt * 6);
     if (boss.stateT > 3.2) {
       boss.state = 'chase'; boss.stateT = 0;
-      boss.posture = 0; boss.cooldown = 0.4;
+      boss.posture = POSTURE_MAX; boss.cooldown = 0.4;
     }
     return;
   }
 
-  boss.posture = Math.max(0, boss.posture - 5 * dt);
+  // 致命の一撃: 刺す(静止)→蹴り飛ばす(放物線で吹っ飛ぶ)→倒れ込む→起き上がる、の4段
+  if (boss.state === 'executed') {
+    boss.walkAmt = Math.max(0, boss.walkAmt - dt * 6);
+    const t = boss.stateT;
+    if (t >= EXEC_STAB_T && t < EXEC_STAB_T + EXEC_AIR_T) {
+      const u = (t - EXEC_STAB_T) / EXEC_AIR_T;
+      boss.x = lerp(boss.leapFrom.x, boss.leapTo.x, ease(u));
+      boss.z = lerp(boss.leapFrom.z, boss.leapTo.z, ease(u));
+      boss.y = Math.sin(Math.PI * u) * EXEC_AIR_HEIGHT;
+      if (u >= 1 && !boss.landed) {
+        boss.landed = true;
+        boss.y = 0;
+        cam.shake = Math.max(cam.shake, 0.35);
+        sfx.stagger();
+      }
+    } else if (t >= EXEC_STAB_T + EXEC_AIR_T) {
+      boss.y = 0;
+    }
+    if (t > EXEC_STAB_T + EXEC_AIR_T + EXEC_DOWN_T + EXEC_GETUP_T) {
+      boss.state = 'chase'; boss.stateT = 0;
+      boss.posture = POSTURE_MAX; boss.cooldown = 1.0;
+      boss.leapFrom = null; boss.leapTo = null; boss.landed = false;
+    }
+    return;
+  }
+
+  boss.posture = Math.min(POSTURE_MAX, boss.posture + 5 * dt);
 
   if (boss.state === 'chase') {
     turnToward(bossDef.turnRate);
@@ -1889,7 +1990,15 @@ function createActorFromGltf(gltf, targetHeight, weaponSpec, tint) {
   let current = null, currentName = '';
   function play(name, opts) {
     opts = opts || {};
-    if (currentName === name && !opts.force) return;
+    if (currentName === name && !opts.force) {
+      // holdFrac指定時: クリップ本来の終盤（例:ひるみからの復帰動作）まで再生させず、
+      // 指定した割合の地点で一時停止してそのポーズのまま止め続ける
+      if (opts.holdFrac !== undefined && current) {
+        const cap = current.getClip().duration * opts.holdFrac;
+        if (current.time > cap) { current.time = cap; current.paused = true; }
+      }
+      return;
+    }
     const clip = clips[name];
     if (!clip) return;
     const a = mixer.clipAction(clip);
@@ -1993,7 +2102,9 @@ function initModels() {
   if (!USE_MODELS || !gfxOk || typeof THREE.GLTFLoader === 'undefined') return;
   // 自キャラ: Mixamo統合モデル（剣・盾はコード生成して手に装着）
   loadModel('models/PlayerHero.glb', (g) => {
-    playerActor = createActorFromGltf(g, 1.75, { len: 0.95, shield: true });
+    // 使用中のMixamoモデル(Paladin)はメッシュに盾が含まれているため、
+    // 手ボーンへの自前の円盤盾(buildShieldModel)は二重表示になるので付けない
+    playerActor = createActorFromGltf(g, 1.75, { len: 0.95, shield: false });
     playerActor.root.visible = false;
   });
   if (typeof BOSS_DATA !== 'undefined' && Array.isArray(BOSS_DATA)) {
@@ -2133,6 +2244,7 @@ function updateBossModel(dt) {
   A.root.visible = true;
   A.root.position.set(-boss.x, boss.y, boss.z);
   A.root.rotation.y = -boss.facing + MODEL_YAW;
+  A.root.rotation.x = 0;
 
   const C = bossDef.clips || {};
   if (boss.state === 'dead') {
@@ -2140,7 +2252,44 @@ function updateBossModel(dt) {
   } else if (boss.state === 'intro') {
     A.play(C.intro || 'Wave', { once: true, dur: 1.5, force: boss.stateT < 0.05 && A.pState !== 'intro' });
   } else if (boss.state === 'stagger') {
-    A.play(C.stagger || 'HitReact', { once: true, dur: 1.3 });
+    // クリップ後半の「体勢を立て直す」動きまで見せると崩れて見えなくなるため、
+    // ひるみの途中（holdFrac）で一時停止し、その姿勢のままstagger終了まで保持する
+    A.play(C.stagger || 'HitReact', { once: true, dur: 1.3, holdFrac: 0.55 });
+  } else if (boss.state === 'executed') {
+    // 刺された瞬間=被弾リアクション→滞空中の大半はそのまま怯み姿勢で飛ぶ→
+    // 着地が近づいたところでFallモーション（倒れ込み）へ切り替え→GetUpモーション、をクロスフェードで繋ぐ。
+    // Fallを滞空の頭から再生すると「高いところで既に倒れ込んでいる」ように見えてしまうため、
+    // 着地間際まで引きつけてから再生する
+    const T_STAB = EXEC_STAB_T, T_AIR_END = EXEC_STAB_T + EXEC_AIR_T, T_DOWN_END = T_AIR_END + EXEC_DOWN_T;
+    const T_FALL_START = T_AIR_END - 0.12; // 着地の直前まで引きつけてから倒れ込みモーションを始める
+    const FALL_PLAY_DUR = 0.5; // 着地の瞬間を跨いで短く再生し切り、以降は静止保持
+    const t = boss.stateT;
+    const hasFall = !!A.clips['Fall'], hasGetUp = !!A.clips['GetUp'];
+    if (t < T_STAB) {
+      A.play(C.stagger || 'HitReact', { once: true, dur: T_STAB, force: t < 0.05 });
+    } else if (t < T_DOWN_END) {
+      if (hasFall) {
+        if (t < T_FALL_START) {
+          // 滞空前半: 蹴られた怯み姿勢のまま静止させて飛ばす（clampWhenFinishedで自動保持）
+          A.play(C.stagger || 'HitReact', { once: true, dur: 0.3, holdFrac: 0.5, force: t < T_STAB + 0.05 });
+        } else {
+          // 滞空後半〜着地: 倒れ込みモーションへクロスフェードし、着地少し後に再生し終えて姿勢を保持
+          A.play('Fall', { once: true, dur: FALL_PLAY_DUR, fade: 0.3, force: t < T_FALL_START + 0.05 });
+        }
+      } else if (t < T_AIR_END) {
+        const u = Math.min(1, (t - T_STAB) / EXEC_AIR_T);
+        A.root.rotation.x = ease(u) * EXEC_FALL_ANGLE;
+      } else {
+        A.root.rotation.x = EXEC_FALL_ANGLE;
+      }
+    } else {
+      if (hasGetUp) {
+        A.play('GetUp', { once: true, dur: EXEC_GETUP_T, fade: 0.3, force: t < T_DOWN_END + 0.05 });
+      } else {
+        const u = Math.min(1, (t - T_DOWN_END) / EXEC_GETUP_T);
+        A.root.rotation.x = EXEC_FALL_ANGLE * (1 - ease(u));
+      }
+    }
   } else if (boss.state === 'attack' && boss.atk) {
     if (A.atkTag !== boss.atkStamp) {
       A.atkTag = boss.atkStamp;
@@ -2287,6 +2436,21 @@ function updatePlayerModel(dt) {
     const hasDedicated = !!A.clips['AttackHeavy'];
     const clip = hasDedicated ? 'AttackHeavy' : PLAYER_CLIPS.attack;
     A.play(clip, { once: true, rate: hasDedicated ? 2.0 : 1.05, startFrac: 0.05, fade: 0.08, force: restart });
+  } else if (player.state === 'attackCritical') {
+    // 致命の一撃: 前半は刺突(Stab)、後半は蹴り(Kick)の2段。専用クリップが無ければ強攻撃で代用する
+    const phase = player.stateT < CRIT_STAB_CLIP_T ? 'stab' : 'kick';
+    const phaseChanged = restart || A.critPhase !== phase;
+    A.critPhase = phase;
+    if (phase === 'stab' && A.clips['Stab']) {
+      // ゆっくり刺す。静止して溜めず、終わり際に蹴りへ長めのクロスフェードで繋げる
+      A.play('Stab', { once: true, dur: CRIT_STAB_DUR, minRate: 0.4, startFrac: 0.05, fade: 0.06, force: phaseChanged });
+    } else if (phase === 'kick' && A.clips['Kick']) {
+      A.play('Kick', { once: true, dur: CRIT_KICK_DUR, startFrac: 0.05, fade: CRIT_KICK_FADE, force: phaseChanged });
+    } else {
+      const hasDedicated = !!A.clips['AttackHeavy'];
+      const clip = hasDedicated ? 'AttackHeavy' : PLAYER_CLIPS.attack;
+      A.play(clip, { once: true, rate: hasDedicated ? 1.8 : 0.85, startFrac: 0.05, fade: 0.08, force: restart });
+    }
   } else if (player.state === 'attackLunge') {
     A.play('Lunge', { once: true, rate: 1.8, startFrac: 0.08, fade: 0.05, force: restart });
   } else if (player.state === 'parry') {
@@ -2298,7 +2462,7 @@ function updatePlayerModel(dt) {
   } else if (player.state === 'dead') {
     A.play(PLAYER_CLIPS.dead, { once: true, dur: 1.3 });
   } else if (player.guarding) {
-    A.play(PLAYER_CLIPS.guard, { fade: 0.12 });
+    A.play(PLAYER_CLIPS.guard, { once: true, fade: 0.12 });
   } else if (Math.hypot(player.vx, player.vz) > 0.6) {
     // ロックオン中の移動: 進行方向に応じて前進/後退/左右の走りを使い分ける
     const spd = Math.hypot(player.vx, player.vz);
@@ -2329,6 +2493,9 @@ function updatePlayerModel(dt) {
   }
   if (player.state === 'attackLunge' && player.stateT > 0.08 && player.stateT < 0.22) {
     actorTrail(A, 0.14, 0.8, 1, 0.9); // ローリング攻撃は青緑がかった軌跡で差別化
+  }
+  if (player.state === 'attackCritical' && player.stateT > CRIT_STAB_CLIP_T && player.stateT < CRIT_HIT_T + 0.1) {
+    actorTrail(A, 0.26, 1, 0.95, 0.3); // 致命の一撃(蹴り)は金色の極太軌跡で差別化
   }
   if (player.state === 'heal' && Math.random() < 0.5) {
     spawnSparks({ x: player.x, y: 0.6 + Math.random(), z: player.z }, 1, 1, 0.84, 0.42);
@@ -2507,7 +2674,7 @@ function startBattle() {
   player.walkAmt = 0; player.deadT = 0; player.guarding = false;
   boss.x = 0; boss.z = 4; boss.y = 0; boss.facing = Math.PI;
   boss.leapFrom = null; boss.leapTo = null; boss.landed = false; boss.spinBase = null;
-  boss.hp = BOSS_HP_MAX; boss.posture = 0; boss.phase = 1;
+  boss.hp = BOSS_HP_MAX; boss.posture = POSTURE_MAX; boss.phase = 1;
   boss.state = 'intro'; boss.stateT = 0; boss.atk = null;
   boss.cooldown = 1.2; boss.queue = []; boss.walkAmt = 0;
   particles = []; trails = []; debris3 = []; pendingBolts = [];
@@ -2718,6 +2885,17 @@ if (DEBUG_LOG) {
 {
   const da = /debugAtk=(\w+)/.exec(location.search);
   if (da) setTimeout(() => { if (bossDef.attacks[da[1]]) bossStartAttack(da[1]); }, 300);
+}
+// 動作確認用: ?debugCrit を付けると1秒後にボスを強制staggerさせ、直後に攻撃を入れて
+// 致命の一撃（damageBossExecute経路）を即座に検証できるようにする
+if (location.search.indexOf('debugCrit') >= 0) {
+  setTimeout(() => { boss.state = 'stagger'; boss.stateT = 0; boss.atk = null; boss.y = 0; boss.posture = 0; }, 1000);
+  setTimeout(() => actions.push('attack'), 1300);
+}
+// 動作確認用: ?debugGuard を付けるとガードを押しっぱなしにし続ける
+// （ガード中の盾姿勢が時間経過で崩れないかの検証用）
+if (location.search.indexOf('debugGuard') >= 0) {
+  setTimeout(() => { input.guardTouch = true; }, 300);
 }
 </script>
 </body>
