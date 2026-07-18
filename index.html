@@ -2813,6 +2813,18 @@ function showDead() {
   sfx.youDied();
   showScreen('deadScreen');
   requestAnimationFrame(() => el('deadScreen').classList.add('dark'));
+  showInterstitialAd();
+}
+
+// ゲームオーバー時にだけインタースティシャル広告を表示する。
+// このタグは読み込まれた瞬間に自動実行される仕様で、外部から表示タイミングを
+// 制御するAPIが無いため、ページ読み込み時に静的埋め込みせず、ゲームオーバーの
+// 瞬間にscriptタグ自体を動的生成して挿入することで表示タイミングを絞っている
+function showInterstitialAd() {
+  const s = document.createElement('script');
+  s.type = 'text/javascript';
+  s.src = 'https://j.zucks.net.zimg.jp/j?f=731945';
+  document.body.appendChild(s);
 }
 
 // ===== ボスごとの記録（旧バージョンの共通キーからも読めるようにする） =====
@@ -3014,6 +3026,5 @@ if (location.search.indexOf('debugGuard') >= 0) {
   setTimeout(() => { input.guardTouch = true; }, 300);
 }
 </script>
-<script type="text/javascript" src="https://j.zucks.net.zimg.jp/j?f=731945"></script>
 </body>
 </html>
