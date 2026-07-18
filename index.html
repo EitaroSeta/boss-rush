@@ -2833,6 +2833,19 @@ function showInterstitialAd() {
   doc.open();
   doc.write('<script type="text/javascript" src="https://j.zucks.net.zimg.jp/j?f=731945"><\/script>');
   doc.close();
+
+  // 広告クリエイティブ側に閉じるボタンが無い場合でもゲームに戻れるよう、
+  // こちらで独自の閉じるボタンを重ねて表示する（広告を消してもプレイ続行できるようにする保険）
+  const closeBtn = document.createElement('div');
+  closeBtn.textContent = '×';
+  closeBtn.style.cssText = 'position:fixed;top:10px;right:10px;width:36px;height:36px;' +
+    'border-radius:50%;background:rgba(0,0,0,.75);color:#fff;font-size:22px;line-height:36px;' +
+    'text-align:center;z-index:10000;cursor:pointer;font-family:sans-serif;user-select:none;';
+  closeBtn.addEventListener('click', () => {
+    ifr.remove();
+    closeBtn.remove();
+  });
+  document.body.appendChild(closeBtn);
 }
 
 // ===== ボスごとの記録（旧バージョンの共通キーからも読めるようにする） =====
