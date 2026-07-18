@@ -2819,12 +2819,20 @@ function showDead() {
 // ゲームオーバー時にだけインタースティシャル広告を表示する。
 // このタグは読み込まれた瞬間に自動実行される仕様で、外部から表示タイミングを
 // 制御するAPIが無いため、ページ読み込み時に静的埋め込みせず、ゲームオーバーの
-// 瞬間にscriptタグ自体を動的生成して挿入することで表示タイミングを絞っている
+// 瞬間に動的挿入している。
+// ただしscript要素をdocument.body.appendChildで直接挿入すると、ページ読み込み後の
+// 非同期スクリプトからのdocument.write()呼び出しとしてブラウザに無視され、
+// 広告タグ内部がdocument.writeベースだと何も表示されなくなる。
+// 新規iframe文書の中でdocument.writeすれば「文書の初期パース中」扱いになり
+// この制限を回避できる（広告タグの遅延挿入における定番の対処法）
 function showInterstitialAd() {
-  const s = document.createElement('script');
-  s.type = 'text/javascript';
-  s.src = 'https://j.zucks.net.zimg.jp/j?f=731945';
-  document.body.appendChild(s);
+  const ifr = document.createElement('iframe');
+  ifr.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:0;z-index:9999;';
+  document.body.appendChild(ifr);
+  const doc = ifr.contentDocument || ifr.contentWindow.document;
+  doc.open();
+  doc.write('<script type="text/javascript" src="https://j.zucks.net.zimg.jp/j?f=731945"><\/script>');
+  doc.close();
 }
 
 // ===== ボスごとの記録（旧バージョンの共通キーからも読めるようにする） =====
