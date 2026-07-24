@@ -135,7 +135,7 @@ const BOSS_DATA = [
         clip: 'Slash2', // 専用モーション導入前はoverheadと同じ見た目(Swipe=Slash)だったため差別化
         reach: 4.8,
         dur: 2.0, dmg: 30, teleEnd: 0.78,
-        windows: [{ t0: 0.79, t1: 1.04, shape: { type: 'sector', r: 4.8, inner: 0.7, half: 1.75 } }],
+        windows: [{ t0: 0.79, t1: 1.04, shape: { type: 'sector', r: 4.8, inner: 0.25, half: 1.75 } }],
         frames: [
           [0,    {}],
           [0.6,  { twist: -0.95, sy: -1.6, sp: 0.12, rp: 0.95, ry: 0.85, re: 0.25 }],
@@ -212,8 +212,8 @@ const BOSS_DATA = [
         reach: 3.6,
         dur: 1.7, teleEnd: 0.55,
         windows: [
-          { t0: 0.57, t1: 0.68, dmg: 14, shape: { type: 'sector', r: 3.6, inner: 0.6, half: 1.5 } },
-          { t0: 0.78, t1: 0.90, dmg: 16, shape: { type: 'sector', r: 3.6, inner: 0.6, half: 1.5 } }
+          { t0: 0.57, t1: 0.68, dmg: 14, shape: { type: 'sector', r: 3.6, inner: 0.25, half: 1.5 } },
+          { t0: 0.78, t1: 0.90, dmg: 16, shape: { type: 'sector', r: 3.6, inner: 0.25, half: 1.5 } }
         ],
         frames: [
           [0,    {}],
@@ -230,8 +230,8 @@ const BOSS_DATA = [
         dur: 2.6, dmg: 24, teleEnd: 0.75,
         spin: { t0: 0.75, t1: 1.75, turns: 2, move: 2.0 },
         windows: [
-          { t0: 0.78, t1: 1.25, dmg: 24, shape: { type: 'sector', r: 4.0, inner: 0.6, half: 3.15 } },
-          { t0: 1.26, t1: 1.75, dmg: 24, shape: { type: 'sector', r: 4.0, inner: 0.6, half: 3.15 } }
+          { t0: 0.78, t1: 1.25, dmg: 24, shape: { type: 'sector', r: 4.0, inner: 0.25, half: 3.15 } },
+          { t0: 1.26, t1: 1.75, dmg: 24, shape: { type: 'sector', r: 4.0, inner: 0.25, half: 3.15 } }
         ],
         frames: [
           [0,    {}],
@@ -336,11 +336,12 @@ const BOSS_DATA = [
           [3.4,  {}]
         ]
       },
-      stormRing: { // 落雷の輪。至近距離と遠距離は安全、中間の輪だけが危険（逆転の間合い管理）
+      stormRing: { // 落雷の輪。密着による安全地帯を悪用されたため、至近距離の穴を廃止して
+        // 全周を判定対象にし、代わりに命中時は大きく吹っ飛ばす（密着連打を強く罰する）
         clip: 'Cast',
         reach: 5.6, // 自分中心の輪なのでr=5.6がそのまま最大到達距離
         dur: 2.4, teleEnd: 0.95,
-        windows: [{ t0: 0.97, t1: 1.15, dmg: 30, shape: { type: 'sector', r: 5.6, inner: 1.6, half: 3.15 } }],
+        windows: [{ t0: 0.97, t1: 1.15, dmg: 30, knockback: 6, shape: { type: 'sector', r: 5.6, inner: 0, half: 3.15 } }],
         strikes: [{ t: 0.95, at: 'boss', delay: 0, r: 0, dmg: 0 }],
         frames: [
           [0,    {}],
@@ -388,7 +389,7 @@ const BOSS_DATA = [
         clip: 'Swipe',
         reach: 5.4,
         dur: 2.1, dmg: 32, teleEnd: 0.7,
-        windows: [{ t0: 0.72, t1: 0.98, shape: { type: 'sector', r: 5.4, inner: 0.8, half: 1.7 } }],
+        windows: [{ t0: 0.72, t1: 0.98, shape: { type: 'sector', r: 5.4, inner: 0.25, half: 1.7 } }],
         frames: [
           [0,    {}],
           [0.55, { twist: -0.95, sy: -1.6, sp: 0.12, rp: 0.95, ry: 0.85, re: 0.25 }],
